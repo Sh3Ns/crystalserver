@@ -11592,6 +11592,10 @@ void Game::stopDecay(const std::shared_ptr<Item> &item) {
 }
 
 void Game::internalDecayItem(const std::shared_ptr<Item> &item) {
+	if (!item || !item->canDecay()) {
+		return;
+	}
+
 	const ItemType &it = Item::items[item->getID()];
 	if (it.decayTo != 0) {
 		transformItem(item, it.decayTo);
