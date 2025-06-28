@@ -29,7 +29,7 @@ Decay &Decay::getInstance() {
 void Decay::startDecay(const std::shared_ptr<Item> &item, int32_t duration) {
 	if (!item || duration <= 0) {
 		return;
-	}	
+	}
 
 	if (item->hasAttribute(ItemAttribute_t::DURATION_TIMESTAMP)) {
 		stopDecay(item, item->getAttribute<int64_t>(ItemAttribute_t::DURATION_TIMESTAMP));
