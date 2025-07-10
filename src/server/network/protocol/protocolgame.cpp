@@ -316,7 +316,7 @@ namespace {
 
 ProtocolGame::ProtocolGame(const Connection_ptr &initConnection) :
 	Protocol(initConnection) {
-	version = CLIENT_VERSION;
+	version = CLIENT_VERSION_MIN;
 }
 
 void ProtocolGame::AddItem(NetworkMessage &msg, uint16_t id, uint8_t count, uint8_t tier) const {
@@ -876,9 +876,9 @@ void ProtocolGame::onRecvFirstMessage(NetworkMessage &msg) {
 		otclientV8 = msg.get<uint16_t>(); // 253, 260, 261, ...
 	}
 
-	if (!oldProtocol && clientVersion != CLIENT_VERSION) {
+	if (!oldProtocol && (clientVersion < CLIENT_VERSION_MIN || clientVersion > CLIENT_VERSION_MAX)) {
 		ss.str(std::string());
-		ss << "Only clients with protocol " << CLIENT_VERSION_UPPER << "." << CLIENT_VERSION_LOWER;
+		ss << "Only clients with protocol " << CLIENT_VERSION_STRING;
 		if (g_configManager().getBoolean(OLD_PROTOCOL)) {
 			ss << " or 11.00";
 		}
