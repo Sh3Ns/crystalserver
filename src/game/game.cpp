@@ -3542,19 +3542,24 @@ void Game::playerEquipItem(uint32_t playerId, uint16_t itemId, bool hasTier /* =
 				ret = internalCollectManagedItems(player, rightItem, getObjectCategory(rightItem), false);
 			}
 
-			// Check if trying to equip a quiver while another quiver is already equipped in the right slot
-			if (slot == CONST_SLOT_RIGHT && rightItem && rightItem->isQuiver() && it.isQuiver()) {
-				// Replace the existing quiver with the new one
-				ret = internalMoveItem(rightItem->getParent(), player, INDEX_WHEREEVER, rightItem, rightItem->getItemCount(), nullptr);
-				if (ret == RETURNVALUE_NOERROR) {
-					g_logger().debug("Quiver {} was unequipped to equip new quiver", rightItem->getName());
-				} else {
-					player->sendCancelMessage(ret);
-					return;
+			/* FIX: Auto-unequip shield when equipping two-handed bow */
+			if (slot == CONST_SLOT_LEFT && (slotPosition & SLOTP_TWO_HAND) && equipItem->getWeaponType() == WEAPON_DISTANCE) {
+				if (rightItem && !rightItem->isQuiver()) {
+					// Unequip item from right slot (shield or other item)
+					ret = internalMoveItem(rightItem->getParent(), player, INDEX_WHEREEVER, rightItem, rightItem->getItemCount(), nullptr);
+					if (ret == RETURNVALUE_NOERROR) {
+						g_logger().debug("Item {} was unequipped to equip two-handed bow", rightItem->getName());
+					} else {
+						player->sendCancelMessage(ret);
+						return;
+					}
 				}
-			} else {
-				// Check if trying to equip a shield while a two-handed weapon is equipped in the left slot
-				if (slot == CONST_SLOT_RIGHT && leftItem && leftItem->getSlotPosition() & SLOTP_TWO_HAND) {
+			}
+
+			// Check if trying to equip a shield while a two-handed weapon is equipped in the left slot
+			if (slot == CONST_SLOT_RIGHT && leftItem && leftItem->getSlotPosition() & SLOTP_TWO_HAND) {
+				// FIX: Don't unequip bow if quiver is equipped */
+				if (!it.isQuiver() || leftItem->getWeaponType() != WEAPON_DISTANCE) {
 					// Unequip the two-handed weapon from the left slot
 					ret = internalMoveItem(leftItem->getParent(), player, INDEX_WHEREEVER, leftItem, leftItem->getItemCount(), nullptr);
 					if (ret == RETURNVALUE_NOERROR) {
@@ -8420,12 +8425,13 @@ void Game::checkImbuementsAndSereneStatus() {
 		}
 
 		const auto &party = mapPlayer->getParty();
-		if (party) {
-			mapPlayer->setSerene(isPlayerNoBoxed(mapPlayer));
-			continue;
-		}
+		bool hasNearbyPartyMembers = party ? hasPartyMembersNearby(mapPlayer) : false;
+		bool hasLessThanSixMonsters = isPlayerNoBoxed(mapPlayer);
 
-		mapPlayer->setSerene(true);
+		bool condition1 = !party || !hasNearbyPartyMembers;
+		bool condition2 = hasLessThanSixMonsters;
+
+		mapPlayer->setSerene(condition1 && condition2);
 	}
 }
 
@@ -11764,6 +11770,45 @@ void Game::createIllusion(const std::shared_ptr<Player> &player, const Outfit_t 
 	player->addCondition(outfitCondition);
 }
 
+bool Game::hasPartyMembersNearby(const std::shared_ptr<Player> &player) {
+	if (!player) {
+		return false;
+	}
+
+	const auto &party = player->getParty();
+	if (!party) {
+		return false;
+	}
+
+	const Position &centerPos = player->getPosition();
+	for (int offsetX = -3; offsetX <= 3; ++offsetX) {
+		for (int offsetY = -3; offsetY <= 3; ++offsetY) {
+			if (offsetX == 0 && offsetY == 0) {
+				continue;
+			}
+
+			const auto &tile = g_game().map.getTile(static_cast<uint16_t>(centerPos.x + offsetX), static_cast<uint16_t>(centerPos.y + offsetY), centerPos.z);
+			if (!tile) {
+				continue;
+			}
+
+			const auto &topCreature = tile->getTopCreature();
+			if (!topCreature) {
+				continue;
+			}
+
+			const auto &nearbyPlayer = topCreature->getPlayer();
+			if (nearbyPlayer && nearbyPlayer != player) {
+				if (nearbyPlayer->getParty() == party) {
+					return true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
 bool Game::isPlayerNoBoxed(const std::shared_ptr<Player> &player) {
 	if (!player) {
 		return true;
@@ -11789,6 +11834,11 @@ bool Game::isPlayerNoBoxed(const std::shared_ptr<Player> &player) {
 			}
 
 			if (topCreature->getMaster() && topCreature->getMaster()->getPlayer() == player) {
+				continue;
+			}
+
+			// Ignore other players (including party members)
+			if (topCreature->getPlayer()) {
 				continue;
 			}
 
