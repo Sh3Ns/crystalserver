@@ -19,7 +19,6 @@
 
 #include "lua/creature/actions.hpp"
 #include "creatures/players/wheel/wheel_definitions.hpp"
-#include <parallel_hashmap/phmap.h>
 
 class InstantSpell;
 class RuneSpell;
@@ -54,13 +53,13 @@ public:
 
 	std::shared_ptr<InstantSpell> getInstantSpellById(uint16_t spellId);
 
-	TalkActionResult_t playerSaySpell(const std::shared_ptr<Player> &player, std::string &words, const std::string &lowerWords);
+	TalkActionResult_t playerSaySpell(const std::shared_ptr<Player> &player, std::string &words);
 
 	static Position getCasterPosition(const std::shared_ptr<Creature> &creature, Direction dir);
 
 	std::list<uint16_t> getSpellsByVocation(uint16_t vocationId);
 
-	[[nodiscard]] const phmap::flat_hash_map<std::string, std::shared_ptr<InstantSpell>> &getInstantSpells() const;
+	[[nodiscard]] const std::map<std::string, std::shared_ptr<InstantSpell>> &getInstantSpells() const;
 
 	[[nodiscard]] bool hasInstantSpell(const std::string &word) const;
 
@@ -72,7 +71,7 @@ public:
 
 private:
 	std::map<uint16_t, std::shared_ptr<RuneSpell>> runes;
-	phmap::flat_hash_map<std::string, std::shared_ptr<InstantSpell>> instants;
+	std::map<std::string, std::shared_ptr<InstantSpell>> instants;
 
 	friend class CombatSpell;
 };

@@ -150,8 +150,7 @@ int TalkActionFunctions::luaTalkActionSeparator(lua_State* L) {
 		return 1;
 	}
 
-	std::string sep = Lua::getString(L, 2);
-	talkactionSharedPtr->setSeparator(sep.empty() ? std::string("\"") : sep);
+	talkactionSharedPtr->setSeparator(Lua::getString(L, 2));
 	Lua::pushBoolean(L, true);
 	return 1;
 }

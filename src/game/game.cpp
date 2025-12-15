@@ -780,7 +780,6 @@ void Game::loadCustomMaps(const std::filesystem::path &customMapPath) {
 }
 
 void Game::loadMap(const std::string &path, const Position &pos) {
-	lastMapLoadTime = OTSYS_TIME();
 	map.loadMap(path, false, false, false, false, false, pos);
 }
 
@@ -1352,9 +1351,9 @@ void Game::playerInspectItem(const std::shared_ptr<Player> &player, const Positi
 	player->sendItemInspection(item->getID(), static_cast<uint8_t>(item->getItemCount()), item, false);
 }
 
-void Game::playerInspectItem(const std::shared_ptr<Player> &player, uint16_t itemId, uint8_t itemCount, uint8_t inspectionType) {
+void Game::playerInspectItem(const std::shared_ptr<Player> &player, uint16_t itemId, uint8_t itemCount, bool cyclopedia) {
 	metrics::method_latency measure(__METRICS_METHOD_NAME__);
-	player->sendItemInspection(itemId, itemCount, nullptr, inspectionType);
+	player->sendItemInspection(itemId, itemCount, nullptr, cyclopedia);
 }
 
 FILELOADER_ERRORS Game::loadAppearanceProtobuf(const std::string &file) {
@@ -3073,26 +3072,6 @@ void Game::playerQuickLootCorpse(const std::shared_ptr<Player> &player, const st
 		}
 	}
 
-	bool hasLootavaible = false;
-	for (ContainerIterator it = corpse->iterator(); it.hasNext(); it.advance()) {
-		const auto &corpseItem = *it;
-		if (!corpseItem) {
-			continue;
-		}
-
-		const bool listed = player->isQuickLootListedItem(corpseItem);
-		if ((listed && ignoreListItems) || (!listed && !ignoreListItems)) {
-			continue;
-		}
-
-		hasLootavaible = true;
-		break;
-	}
-
-	if (!hasLootavaible) {
-		corpse->clearLootHighlight(player);
-	}
-
 	std::stringstream ss;
 	if (totalLootedGold != 0 || missedAnyGold || totalLootedItems != 0 || missedAnyItem) {
 		bool lootedAllGold = totalLootedGold != 0 && !missedAnyGold;
@@ -3166,8 +3145,6 @@ void Game::playerQuickLootCorpse(const std::shared_ptr<Player> &player, const st
 	} else {
 		player->sendTextMessage(MESSAGE_EVENT_ADVANCE, ss.str());
 	}
-
-	corpse->sendUpdateToClient(player);
 
 	player->lastQuickLootNotification = OTSYS_TIME();
 }
@@ -3474,10 +3451,6 @@ uint64_t Game::getItemMarketPrice(const std::map<uint16_t, uint64_t> &itemMap, b
 }
 
 std::shared_ptr<Item> searchForItem(const std::shared_ptr<Container> &container, uint16_t itemId, bool hasTier /* = false*/, uint8_t tier /* = 0*/) {
-	if (!container) {
-		return nullptr;
-	}
-
 	for (ContainerIterator it = container->iterator(); it.hasNext(); it.advance()) {
 		if ((*it)->getID() == itemId && (!hasTier || (*it)->getTier() == tier)) {
 			return *it;
@@ -3520,32 +3493,6 @@ void Game::playerEquipItem(uint32_t playerId, uint16_t itemId, bool hasTier /* =
 		return;
 	}
 
-	const ItemType &it = Item::items[itemId];
-	Slots_t slot = getSlotType(it);
-
-	if (slot == CONST_SLOT_NECKLACE) {
-		if (!player->canEquipNecklace()) {
-			return;
-		}
-	} else if (slot == CONST_SLOT_RING) {
-		if (!player->canEquipRing()) {
-			return;
-		}
-	} else if (!player->canDoAction()) {
-		uint32_t delay = player->getNextActionTime();
-		if (delay > 0) {
-			const auto &task = createPlayerTask(
-				delay,
-				[this, playerId, itemId, hasTier, tier] {
-					playerEquipItem(playerId, itemId, hasTier, tier);
-				},
-				__FUNCTION__
-			);
-			player->setNextActionTask(task);
-		}
-		return;
-	}
-
 	if (player->hasCondition(CONDITION_FEARED)) {
 		/*
 		 *	When player is feared the player can´t equip any items.
@@ -3555,22 +3502,32 @@ void Game::playerEquipItem(uint32_t playerId, uint16_t itemId, bool hasTier /* =
 	}
 
 	const auto &item = player->getInventoryItem(CONST_SLOT_BACKPACK);
-	const auto &backpack = item ? item->getContainer() : nullptr;
+	if (!item) {
+		return;
+	}
+
+	const std::shared_ptr<Container> &backpack = item->getContainer();
+	if (!backpack) {
+		return;
+	}
+
+	if (player->getFreeBackpackSlots() == 0) {
+		player->sendCancelMessage(RETURNVALUE_NOTENOUGHROOM);
+		return;
+	}
+
+	const ItemType &it = Item::items[itemId];
+	Slots_t slot = getSlotType(it);
 
 	const auto &slotItem = player->getInventoryItem(slot);
-	auto equipItem = searchForItem(backpack, it.id, hasTier, tier);
-	if (!equipItem) {
-		const auto &lootPouch = player->getLootPouch();
-		equipItem = searchForItem(lootPouch, it.id, hasTier, tier);
-	}
+	const auto &equipItem = searchForItem(backpack, it.id, hasTier, tier);
 	ReturnValue ret = RETURNVALUE_NOERROR;
-
-	if (slotItem && slotItem->getID() == it.id && (!hasTier || slotItem->getTier() == tier) && !equipItem) {
-		ret = internalCollectManagedItems(player, slotItem, getObjectCategory(slotItem), false);
+	if (slotItem && slotItem->getID() == it.id && (!it.stackable || slotItem->getItemCount() == slotItem->getStackSize() || !equipItem)) {
+		ret = internalMoveItem(slotItem->getParent(), player, CONST_SLOT_WHEREEVER, slotItem, slotItem->getItemCount(), nullptr);
+		g_logger().debug("Item {} was unequipped", slotItem->getName());
 	} else if (equipItem) {
 		// Shield slot item
 		const auto &rightItem = player->getInventoryItem(CONST_SLOT_RIGHT);
-
 		// Check Ammo item
 		if (it.weaponType == WEAPON_AMMO) {
 			if (rightItem && rightItem->isQuiver()) {
@@ -3580,39 +3537,62 @@ void Game::playerEquipItem(uint32_t playerId, uint16_t itemId, bool hasTier /* =
 			const auto &leftItem = player->getInventoryItem(CONST_SLOT_LEFT);
 
 			const int32_t &slotPosition = equipItem->getSlotPosition();
+
 			// Checks if a two-handed item is being equipped in the left slot when the right slot is already occupied and move to backpack
 			if (
 				(slotPosition & SLOTP_LEFT)
 				&& (slotPosition & SLOTP_TWO_HAND)
 				&& rightItem
+				&& !(it.weaponType == WEAPON_DISTANCE)
 				&& !rightItem->isQuiver()
+				&& (!leftItem || leftItem->getWeaponType() != WEAPON_DISTANCE)
 			) {
 				ret = internalCollectManagedItems(player, rightItem, getObjectCategory(rightItem), false);
 			}
 
-			// Check if trying to equip a shield while a two-handed weapon is equipped in the left slot
-			if (slot == CONST_SLOT_RIGHT && !it.isQuiver() && leftItem && leftItem->getSlotPosition() & SLOTP_TWO_HAND) {
-				ret = internalMoveItem(leftItem->getParent(), player, INDEX_WHEREEVER, leftItem, leftItem->getItemCount(), nullptr);
-				if (ret != RETURNVALUE_NOERROR) {
-					player->sendCancelMessage(ret);
-					return;
+			/* FIX: Auto-unequip shield when equipping two-handed bow */
+			if (slot == CONST_SLOT_LEFT && (slotPosition & SLOTP_TWO_HAND) && equipItem->getWeaponType() == WEAPON_DISTANCE) {
+				if (rightItem && !rightItem->isQuiver()) {
+					// Unequip item from right slot (shield or other item)
+					ret = internalMoveItem(rightItem->getParent(), player, INDEX_WHEREEVER, rightItem, rightItem->getItemCount(), nullptr);
+					if (ret == RETURNVALUE_NOERROR) {
+						g_logger().debug("Item {} was unequipped to equip two-handed bow", rightItem->getName());
+					} else {
+						player->sendCancelMessage(ret);
+						return;
+					}
 				}
 			}
 
+			// Check if trying to equip a shield while a two-handed weapon is equipped in the left slot
+			if (slot == CONST_SLOT_RIGHT && leftItem && leftItem->getSlotPosition() & SLOTP_TWO_HAND) {
+				// FIX: Don't unequip bow if quiver is equipped */
+				if (!it.isQuiver() || leftItem->getWeaponType() != WEAPON_DISTANCE) {
+					// Unequip the two-handed weapon from the left slot
+					ret = internalMoveItem(leftItem->getParent(), player, INDEX_WHEREEVER, leftItem, leftItem->getItemCount(), nullptr);
+					if (ret == RETURNVALUE_NOERROR) {
+						g_logger().debug("Two-handed weapon {} was unequipped to equip shield", leftItem->getName());
+					} else {
+						player->sendCancelMessage(ret);
+						return;
+					}
+				}
+			}
+
+			if (slotItem) {
+				ret = internalMoveItem(slotItem->getParent(), player, INDEX_WHEREEVER, slotItem, slotItem->getItemCount(), nullptr);
+				g_logger().debug("Item {} was moved back to player", slotItem->getName());
+			}
+
 			ret = internalMoveItem(equipItem->getParent(), player, slot, equipItem, equipItem->getItemCount(), nullptr);
+			if (ret == RETURNVALUE_NOERROR) {
+				g_logger().debug("Item {} was equipped", equipItem->getName());
+			}
 		}
 	}
 
 	if (ret != RETURNVALUE_NOERROR) {
 		player->sendCancelMessage(ret);
-		return;
-	}
-	if (slot == CONST_SLOT_NECKLACE) {
-		player->setNextNecklaceAction(OTSYS_TIME() + g_configManager().getNumber(ACTIONS_DELAY_INTERVAL));
-	} else if (slot == CONST_SLOT_RING) {
-		player->setNextRingAction(OTSYS_TIME() + g_configManager().getNumber(ACTIONS_DELAY_INTERVAL));
-	} else {
-		player->setNextAction(OTSYS_TIME() + g_configManager().getNumber(ACTIONS_DELAY_INTERVAL));
 	}
 }
 
@@ -4138,13 +4118,14 @@ void Game::playerUseWithCreature(uint32_t playerId, const Position &fromPos, uin
 		return;
 	}
 
-	bool canUseHouseItem = !g_configManager().getBoolean(ONLY_INVITED_CAN_MOVE_HOUSE_ITEMS) || InternalGame::playerCanUseItemOnHouseTile(player, item);
-	if (!canUseHouseItem && item->hasOwner() && !item->isOwner(player)) {
-		player->sendCancelMessage(RETURNVALUE_ITEMISNOTYOURS);
-		return;
-	} else if (!canUseHouseItem) {
-		player->sendCancelMessage(RETURNVALUE_ITEMCANNOTBEMOVEDTHERE);
-		return;
+	if (g_configManager().getBoolean(ONLY_INVITED_CAN_MOVE_HOUSE_ITEMS)) {
+		if (std::shared_ptr<HouseTile> houseTile = std::dynamic_pointer_cast<HouseTile>(item->getTile())) {
+			const auto &house = houseTile->getHouse();
+			if (house && item->getRealParent() && item->getRealParent() != player && (!house->isInvited(player) || house->getHouseAccessLevel(player) == HOUSE_GUEST)) {
+				player->sendCancelMessage(RETURNVALUE_CANNOTUSETHISOBJECT);
+				return;
+			}
+		}
 	}
 
 	const ItemType &it = Item::items[item->getID()];
@@ -5810,8 +5791,6 @@ void Game::handleCorpseLoot(const std::shared_ptr<Player> &player, const std::sh
 	} else {
 		playerLootAllCorpses(player, pos, lootAll);
 	}
-
-	corpse->sendUpdateToClient(player);
 }
 
 void Game::sendLootMessageWithCooldown(const std::shared_ptr<Player> &player, const std::string &message) {
@@ -6542,7 +6521,7 @@ void Game::playerSay(uint32_t playerId, uint16_t channelId, SpeakClasses type, c
 		return;
 	}
 
-	if (text.front() == '/' && player->isAccessPlayer()) {
+	if (!text.empty() && text.front() == '/' && player->isAccessPlayer()) {
 		return;
 	}
 
@@ -6598,17 +6577,12 @@ bool Game::playerSaySpell(const std::shared_ptr<Player> &player, SpeakClasses ty
 	}
 
 	std::string words = text;
-	const std::string &lowerWords = asLowerCaseString(words);
-
-	TalkActionResult_t result = TALKACTION_FAILED;
-	if (text.front() == '/' || text.front() == '!') {
-		result = g_talkActions().checkPlayerCanSayTalkAction(player, type, words, type == TALKTYPE_SAY ? (unsigned)CHANNEL_DEFAULT : channelId);
-		if (result == TALKACTION_BREAK) {
-			return true;
-		}
+	TalkActionResult_t result = g_talkActions().checkPlayerCanSayTalkAction(player, type, words, type == TALKTYPE_SAY ? (unsigned)CHANNEL_DEFAULT : channelId);
+	if (result == TALKACTION_BREAK) {
+		return true;
 	}
 
-	result = g_spells().playerSaySpell(player, words, lowerWords);
+	result = g_spells().playerSaySpell(player, words);
 	if (result == TALKACTION_BREAK) {
 		if (!g_configManager().getBoolean(PUSH_WHEN_ATTACKING)) {
 			player->cancelPush();
@@ -11143,7 +11117,6 @@ void Game::playerRewardChestCollect(uint32_t playerId, const Position &pos, uint
 			playerRewardChest->setParent(tile);
 		}
 	}
-
 	for (const auto &[mapRewardId, reward] : player->rewardMap) {
 		reward->setParent(playerRewardChest);
 	}

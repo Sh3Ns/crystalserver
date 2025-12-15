@@ -67,7 +67,6 @@
 #include "enums/object_category.hpp"
 #include "enums/player_blessings.hpp"
 #include "enums/player_cyclopedia.hpp"
-#include "enums/container_type.hpp"
 
 /*
  * NOTE: This namespace is used so that we can add functions without having to declare them in the ".hpp/.hpp" file
@@ -461,34 +460,48 @@ void ProtocolGame::AddItem(NetworkMessage &msg, const std::shared_ptr<Item> &ite
 		return;
 	}
 
-	const auto &container = item->getContainer();
-	if (it.isContainer() && container) {
-		ContainerSpecial_t containerType = container->getSpecialCategory(player);
-		msg.addByte(enumToValue(containerType));
-		switch (containerType) {
-			case ContainerSpecial_t::LootHighlight:
-				break;
-			case ContainerSpecial_t::Manager: {
-				auto [lootFlags, obtainFlags] = container->getObjectCategoryFlags(player);
+	if (it.isContainer()) {
+		uint8_t containerType = 0;
+
+		std::shared_ptr<Container> container = item->getContainer();
+		if (container && containerType == 0 && container->getHoldingPlayer() == player) {
+			uint32_t lootFlags = 0;
+			uint32_t obtainFlags = 0;
+			for (const auto &[category, containerMap] : player->m_managedContainers) {
+				if (!isValidObjectCategory(category)) {
+					continue;
+				}
+				if (containerMap.first == container) {
+					lootFlags |= 1 << category;
+				}
+				if (containerMap.second == container) {
+					obtainFlags |= 1 << category;
+				}
+			}
+
+			if (lootFlags != 0 || obtainFlags != 0) {
+				containerType = 9;
+				msg.addByte(containerType);
 				msg.add<uint32_t>(lootFlags);
 				msg.add<uint32_t>(obtainFlags);
-				break;
 			}
-			case ContainerSpecial_t::ContentCounter: {
-				auto ammoTotal = container->getAmmoAmount(player);
-				msg.add<uint32_t>(ammoTotal);
-				break;
+		}
+
+		// Quiver ammo count
+		if (container && containerType == 0 && item->isQuiver() && player->getThing(CONST_SLOT_RIGHT) == item) {
+			uint16_t ammoTotal = 0;
+			for (const std::shared_ptr<Item> &listItem : container->getItemList()) {
+				if (player->getLevel() >= Item::items[listItem->getID()].minReqLevel) {
+					ammoTotal += listItem->getItemCount();
+				}
 			}
-			case ContainerSpecial_t::QuiverLoot: {
-				auto ammoTotal = container->getAmmoAmount(player);
-				auto [lootFlags, obtainFlags] = container->getObjectCategoryFlags(player);
-				msg.add<uint32_t>(lootFlags);
-				msg.add<uint32_t>(ammoTotal);
-				msg.add<uint32_t>(obtainFlags);
-				break;
-			}
-			default:
-				break;
+			containerType = 2;
+			msg.addByte(containerType);
+			msg.add<uint32_t>(ammoTotal);
+		}
+
+		if (containerType == 0) {
+			msg.addByte(0x00);
 		}
 	}
 
@@ -780,7 +793,7 @@ void ProtocolGame::connect(const std::string &playerName, OperatingSystem_t oper
 	player->sendHarmonyProtocol();
 	player->sendSereneProtocol();
 	player->resyncSpellCooldowns();
-
+	
 	sendAddCreature(player, player->getPosition(), 0, true);
 	player->lastIP = player->getIP();
 	player->lastLoad = OTSYS_TIME();
@@ -2098,9 +2111,8 @@ void ProtocolGame::parseSay(NetworkMessage &msg) {
 			break;
 	}
 
-	std::string text = msg.getString();
-	trimString(text);
-	if (text.empty() || text.length() > 255) {
+	const std::string text = msg.getString();
+	if (text.length() > 255) {
 		return;
 	}
 
@@ -2266,10 +2278,10 @@ void ProtocolGame::parseInspectionObject(NetworkMessage &msg) {
 	if (inspectionType == INSPECT_NORMALOBJECT) {
 		Position pos = msg.getPosition();
 		g_game().playerInspectItem(player, pos);
-	} else if (inspectionType == INSPECT_NPCTRADE || inspectionType == INSPECT_CYCLOPEDIA || inspectionType == INSPECT_PROFICIENCY) {
+	} else if (inspectionType == INSPECT_NPCTRADE || inspectionType == INSPECT_CYCLOPEDIA) {
 		auto itemId = msg.get<uint16_t>();
 		uint16_t itemCount = msg.getByte();
-		g_game().playerInspectItem(player, itemId, static_cast<int8_t>(itemCount), inspectionType);
+		g_game().playerInspectItem(player, itemId, static_cast<int8_t>(itemCount), (inspectionType == INSPECT_CYCLOPEDIA));
 	}
 }
 
@@ -2283,7 +2295,7 @@ void ProtocolGame::sendSessionEndInformation(SessionEndInformations information)
 	disconnect();
 }
 
-void ProtocolGame::sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, uint8_t inspectionType) {
+void ProtocolGame::sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, bool cyclopedia) {
 	if (oldProtocol) {
 		return;
 	}
@@ -2291,13 +2303,7 @@ void ProtocolGame::sendItemInspection(uint16_t itemId, uint8_t itemCount, const 
 	NetworkMessage msg;
 	msg.addByte(0x76);
 	msg.addByte(0x00);
-	if (inspectionType == INSPECT_CYCLOPEDIA) {
-		msg.addByte(0x01);
-	} else if (inspectionType == INSPECT_PROFICIENCY) {
-		msg.addByte(0x02);
-	} else {
-		msg.addByte(0x00);
-	}
+	msg.addByte(cyclopedia ? 0x01 : 0x00);
 	msg.add<uint32_t>(player->getID()); // 13.00 Creature ID
 	msg.addByte(0x01);
 
@@ -5490,7 +5496,10 @@ void ProtocolGame::sendMarketEnter(uint32_t depotId) {
 
 	// Only use here locker items, itemVector is for use of Game::createMarketOffer
 	auto [itemVector, lockerItems] = player->requestLockerItems(depotLocker, true);
-	msg.add<uint16_t>(lockerItems.size());
+	auto totalItemsCountPosition = msg.getBufferPosition();
+	msg.skipBytes(2); // Total items count
+
+	uint16_t totalItemsCount = 0;
 	for (const auto &[itemId, tierAndCountMap] : lockerItems) {
 		for (const auto &[tier, count] : tierAndCountMap) {
 			msg.add<uint16_t>(itemId);
@@ -5498,9 +5507,12 @@ void ProtocolGame::sendMarketEnter(uint32_t depotId) {
 				msg.addByte(tier);
 			}
 			msg.add<uint16_t>(static_cast<uint16_t>(count));
+			totalItemsCount++;
 		}
 	}
 
+	msg.setBufferPosition(totalItemsCountPosition);
+	msg.add<uint16_t>(totalItemsCount);
 	writeToOutputBuffer(msg);
 
 	updateCoinBalance();

@@ -1073,7 +1073,7 @@ public:
 	void sendChannel(uint16_t channelId, const std::string &channelName, const UsersMap* channelUsers, const InvitedMap* invitedUsers) const;
 	void sendTutorial(uint8_t tutorialId) const;
 	void sendAddMarker(const Position &pos, uint8_t markType, const std::string &desc) const;
-	void sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, uint8_t inspectionType) const;
+	void sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, bool cyclopedia) const;
 	void sendCyclopediaCharacterNoData(CyclopediaCharacterInfoType_t characterInfoType, uint8_t errorCode) const;
 	void sendCyclopediaCharacterBaseInformation() const;
 	void sendCyclopediaCharacterGeneralStats() const;
@@ -1114,12 +1114,6 @@ public:
 
 	void setNextPotionAction(int64_t time);
 	bool canDoPotionAction() const;
-
-	void setNextNecklaceAction(int64_t time);
-	bool canEquipNecklace() const;
-
-	void setNextRingAction(int64_t time);
-	bool canEquipRing() const;
 
 	void setNextExAction(int64_t time);
 	bool canDoExAction() const;
@@ -1489,7 +1483,7 @@ public:
 	void sendPlayerTyping(const std::shared_ptr<Creature> &creature, uint8_t typing) const;
 
 	void resetOldCharms();
-	[[nodiscard]] bool isFirstOnStack() const;
+	bool isFirstOnStack() const;
 
 	/*******************************************************************************
 	 * Deflect Condition
@@ -1535,11 +1529,6 @@ public:
 	uint16_t getMantraTotal() const;
 
 	std::unordered_map<uint16_t, uint8_t> spellActivedAimMap;
-
-	using ManagedContainerMap = std::map<ObjectCategory_t, std::pair<std::shared_ptr<Container>, std::shared_ptr<Container>>>;
-	[[nodiscard]] const ManagedContainerMap &getManagedContainers() const {
-		return m_managedContainers;
-	}
 
 private:
 	friend class PlayerLock;
@@ -1626,7 +1615,7 @@ private:
 
 	std::map<uint64_t, std::shared_ptr<Reward>> rewardMap;
 
-	ManagedContainerMap m_managedContainers;
+	std::map<ObjectCategory_t, std::pair<std::shared_ptr<Container>, std::shared_ptr<Container>>> m_managedContainers;
 	std::vector<ForgeHistory> forgeHistoryVector;
 
 	std::vector<uint16_t> quickLootListItemIds;
@@ -1687,8 +1676,6 @@ private:
 	int64_t nextExAction = 0;
 	int64_t nextImbuementAction = 0;
 	int64_t nextPotionAction = 0;
-	int64_t nextNecklaceAction = 0;
-	int64_t nextRingAction = 0;
 	int64_t nextMarketAction = 0;
 	int64_t lastQuickLootNotification = 0;
 	int64_t lastWalking = 0;

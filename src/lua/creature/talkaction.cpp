@@ -23,10 +23,7 @@
 #include "lua/scripts/scripts.hpp"
 #include "lib/di/container.hpp"
 
-TalkActions::TalkActions() {
-	talkActions.reserve(100);
-}
-
+TalkActions::TalkActions() = default;
 TalkActions::~TalkActions() = default;
 
 TalkActions &TalkActions::getInstance() {

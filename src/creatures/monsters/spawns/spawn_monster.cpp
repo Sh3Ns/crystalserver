@@ -129,16 +129,8 @@ bool SpawnsMonster::loadFromXML(const std::string &filemonstername) {
 }
 
 void SpawnsMonster::startup() {
-	if (!isLoaded()) {
+	if (!isLoaded() || isStarted()) {
 		return;
-	}
-
-	if (isStarted()) {
-		for (const auto &spawnMonster : spawnMonsterList) {
-			spawnMonster->stopEvent();
-			spawnMonster->removeMonsters();
-		}
-		started = false;
 	}
 
 	for (const auto &spawnMonster : spawnMonsterList) {
@@ -151,7 +143,6 @@ void SpawnsMonster::startup() {
 void SpawnsMonster::clear() {
 	for (const auto &spawnMonster : spawnMonsterList) {
 		spawnMonster->stopEvent();
-		spawnMonster->removeMonsters();
 	}
 	spawnMonsterList.clear();
 
@@ -190,7 +181,6 @@ void SpawnMonster::startSpawnMonsterCheck() {
 
 SpawnMonster::~SpawnMonster() {
 	stopEvent();
-	removeMonsters();
 }
 
 // moveable
@@ -346,9 +336,6 @@ void SpawnMonster::cleanup() {
 	for (auto it = spawnedMonsterMap.begin(); it != spawnedMonsterMap.end();) {
 		const auto &monster = it->second;
 		if (!monster || monster->isRemoved()) {
-			if (monster) {
-				monster->setSpawnMonster(nullptr);
-			}
 			auto spawnIt = spawnMonsterMap.find(it->first);
 			if (spawnIt != spawnMonsterMap.end()) {
 				spawnIt->second.lastSpawn = OTSYS_TIME();
@@ -438,20 +425,10 @@ void SpawnMonster::removeMonster(const std::shared_ptr<Monster> &monster) {
 			break;
 		}
 	}
-	if (spawnMonsterId != 0) {
-		if (monster) {
-			monster->setSpawnMonster(nullptr);
-		}
-		spawnedMonsterMap.erase(spawnMonsterId);
-	}
+	spawnedMonsterMap.erase(spawnMonsterId);
 }
 
 void SpawnMonster::removeMonsters() {
-	for (auto &[id, monster] : spawnedMonsterMap) {
-		if (monster) {
-			monster->setSpawnMonster(nullptr);
-		}
-	}
 	spawnMonsterMap.clear();
 	spawnedMonsterMap.clear();
 }
