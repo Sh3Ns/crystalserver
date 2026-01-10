@@ -174,7 +174,7 @@ private:
 
 	void sendSessionEndInformation(SessionEndInformations information);
 
-	void sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, bool cyclopedia);
+	void sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, uint8_t inspectionType);
 	void parseInspectionObject(NetworkMessage &msg);
 
 	void parseFriendSystemAction(NetworkMessage &msg);
@@ -541,7 +541,7 @@ private:
 	void parseWheelGemAction(NetworkMessage &msg);
 
 	void sendHarmonyProtocol(const uint8_t harmonyValue);
-	void sendSereneProtocol(const bool isSerene);
+	void sendSereneProtocol(const bool isSerene = true);
 	void sendVirtueProtocol(const uint8_t virtueValue);
 	void parseSelectSpellAimProtocol(NetworkMessage &msg);
 

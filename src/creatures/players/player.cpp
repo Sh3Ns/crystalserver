@@ -3108,12 +3108,12 @@ void Player::setEditHouse(const std::shared_ptr<House> &house, uint32_t listId) 
 
 void Player::learnInstantSpell(const std::string &spellName) {
 	if (!hasLearnedInstantSpell(spellName)) {
-		learnedInstantSpellList.emplace_back(spellName);
+		learnedInstantSpellList.emplace(asLowerCaseString(spellName));
 	}
 }
 
 void Player::forgetInstantSpell(const std::string &spellName) {
-	std::erase(learnedInstantSpellList, spellName);
+	learnedInstantSpellList.erase(asLowerCaseString(spellName));
 }
 
 bool Player::hasLearnedInstantSpell(const std::string &spellName) const {
@@ -3125,9 +3125,11 @@ bool Player::hasLearnedInstantSpell(const std::string &spellName) const {
 		return true;
 	}
 
-	return std::ranges::any_of(learnedInstantSpellList, [&](const auto &learnedSpellName) {
-		return strcasecmp(learnedSpellName.c_str(), spellName.c_str()) == 0;
-	});
+	auto it = learnedInstantSpellList.find(asLowerCaseString(spellName));
+	if (it != learnedInstantSpellList.end()) {
+		return true;
+	}
+	return false;
 }
 
 void Player::updateRegeneration() const {
@@ -3367,6 +3369,26 @@ void Player::setNextAction(int64_t time) {
 
 bool Player::canDoAction() const {
 	return nextAction <= OTSYS_TIME();
+}
+
+void Player::setNextNecklaceAction(int64_t time) {
+	if (time > nextNecklaceAction) {
+		nextNecklaceAction = time;
+	}
+}
+
+void Player::setNextRingAction(int64_t time) {
+	if (time > nextRingAction) {
+		nextRingAction = time;
+	}
+}
+
+bool Player::canEquipNecklace() const {
+	return OTSYS_TIME() >= nextNecklaceAction;
+}
+
+bool Player::canEquipRing() const {
+	return OTSYS_TIME() >= nextRingAction;
 }
 
 void Player::setNextPotionAction(int64_t time) {
@@ -4164,16 +4186,28 @@ void Player::death(const std::shared_ptr<Creature> &lastHitCreature) {
 			bool hasSkull = (playerSkull == Skulls_t::SKULL_RED || playerSkull == Skulls_t::SKULL_BLACK);
 			uint8_t maxBlessing = 8;
 			if (!hasSkull && pvpDeath && hasBlessing(1)) {
-				removeBlessing(1, 1); // Remove TOF only
+				auto storeCount = getBlessingCount(1, true);
+				if (storeCount > 0) {
+					auto currentStore = kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", 1))->get("amount");
+					if (currentStore) {
+						auto newAmount = std::max(0, static_cast<int>(currentStore->getNumber()) - 1);
+						kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", 1))->set("amount", newAmount);
+					}
+				} else {
+					removeBlessing(1, 1);
+				}
 			} else {
 				for (int i = 2; i <= maxBlessing; i++) {
-					removeBlessing(i, 1);
-				}
-
-				const auto &playerAmulet = getThing(CONST_SLOT_NECKLACE);
-				bool usingAol = (playerAmulet && playerAmulet->getItem()->getID() == ITEM_AMULETOFLOSS);
-				if (usingAol) {
-					removeItemOfType(ITEM_AMULETOFLOSS, 1, -1);
+					auto storeCount = getBlessingCount(i, true);
+					if (storeCount > 0) {
+						auto currentStore = kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", i))->get("amount");
+						if (currentStore) {
+							auto newAmount = std::max(0, static_cast<int>(currentStore->getNumber()) - 1);
+							kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", i))->set("amount", newAmount);
+						}
+					} else {
+						removeBlessing(i, 1);
+					}
 				}
 			}
 		}
@@ -8345,9 +8379,9 @@ void Player::sendAddMarker(const Position &pos, uint8_t markType, const std::str
 	}
 }
 
-void Player::sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, bool cyclopedia) const {
+void Player::sendItemInspection(uint16_t itemId, uint8_t itemCount, const std::shared_ptr<Item> &item, uint8_t inspectionType) const {
 	if (client) {
-		client->sendItemInspection(itemId, itemCount, item, cyclopedia);
+		client->sendItemInspection(itemId, itemCount, item, inspectionType);
 	}
 }
 
@@ -12176,6 +12210,26 @@ uint64_t Player::getSereneCooldown() {
 void Player::setSereneCooldown(const uint64_t addTime) {
 	const uint64_t timenow = OTSYS_TIME();
 	m_serene_cooldown = timenow + addTime;
+}
+
+void Player::resyncSpellCooldowns() const {
+	if (!client) {
+		return;
+	}
+
+	// Resync individual spell cooldowns
+	for (const auto &condition : getConditionsByType(CONDITION_SPELLCOOLDOWN)) {
+		uint16_t spellId = condition->getSubId();
+		uint32_t ticks = condition->getTicks();
+		sendSpellCooldown(spellId, ticks);
+	}
+
+	// Resync group spell cooldowns
+	for (const auto &condition : getConditionsByType(CONDITION_SPELLGROUPCOOLDOWN)) {
+		SpellGroup_t groupId = static_cast<SpellGroup_t>(condition->getSubId());
+		uint32_t ticks = condition->getTicks();
+		client->sendSpellGroupCooldown(groupId, ticks);
+	}
 }
 
 void Player::sendVirtueProtocol() const {
