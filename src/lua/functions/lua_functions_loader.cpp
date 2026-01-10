@@ -33,8 +33,8 @@
 #include "lua/functions/map/map_functions.hpp"
 #include "lua/functions/core/game/zone_functions.hpp"
 #include "lua/global/lua_variant.hpp"
+
 #include "enums/lua_variant_type.hpp"
-#include "utils/stats.hpp"
 
 class LuaScriptInterface;
 
@@ -101,16 +101,6 @@ std::string Lua::getErrorDesc(ErrorCode_t code) {
 }
 
 int Lua::protectedCall(lua_State* L, int nargs, int nresults) {
-#ifdef STATS_ENABLED
-	int32_t scriptId;
-	int32_t callbackId;
-	bool timerEvent;
-	// auto [scriptId, scriptInterface, callbackId, timerEvent] = getScriptEnv()->getEventInfo();
-	LuaScriptInterface* scriptInterface;
-	getScriptEnv()->getEventInfo(scriptId, scriptInterface, callbackId, timerEvent);
-	std::chrono::high_resolution_clock::time_point time_point = std::chrono::high_resolution_clock::now();
-#endif
-
 	if (const int ret = validateDispatcherContext(__FUNCTION__); ret != 0) {
 		return ret;
 	}

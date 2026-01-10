@@ -19,7 +19,6 @@
 
 #include "lua/scripts/lua_environment.hpp"
 #include "lib/metrics/metrics.hpp"
-#include "utils/stats.hpp"
 
 ScriptEnvironment::DBResultMap ScriptEnvironment::tempResults;
 uint32_t ScriptEnvironment::lastResultId = 0;
@@ -160,33 +159,6 @@ int32_t LuaScriptInterface::getMetaEvent(const std::string &globalName, const st
 	return runningEventId++;
 }
 
-#ifdef STATS_ENABLED
-const std::string &LuaScriptInterface::getAddEventStackTracebackHash(const std::string &addEventStackBacktrace) {
-	if (!g_configManager().getBoolean(STATS_TRACK_LUA_ADD_EVENTS_HASHES)) {
-		static const std::string &hashesDisabledText = "LuaAddEvent";
-		return hashesDisabledText;
-	}
-
-	if (auto it { addEventStackTracebackHashCache.find(addEventStackBacktrace) };
-	    it != std::end(addEventStackTracebackHashCache)) {
-		return it->second;
-	}
-
-	std::chrono::high_resolution_clock::time_point time_point = std::chrono::high_resolution_clock::now();
-	auto* hash = new std::string(
-		fmt::format("LuaAddEvent-{:d}", adlerChecksum(reinterpret_cast<const uint8_t*>(addEventStackBacktrace.c_str()), addEventStackBacktrace.length()))
-	);
-	uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - time_point)
-					  .count();
-
-	addEventStackTracebackHashCache[addEventStackBacktrace] = *hash;
-
-	std::cout << "Generated new addEvent hash (" << ns << "): " << *hash << "=" << addEventStackBacktrace << std::endl;
-
-	return *hash;
-}
-#endif
-
 const std::string &LuaScriptInterface::getFileById(int32_t scriptId) {
 	if (scriptId == EVENT_ID_LOADING) {
 		return loadingFile;
@@ -262,11 +234,6 @@ bool LuaScriptInterface::closeState() {
 	}
 
 	cacheFiles.clear();
-
-#ifdef STATS_ENABLED
-	addEventStackTracebackHashCache.clear();
-#endif
-
 	if (eventTableRef != -1) {
 		luaL_unref(luaState, LUA_REGISTRYINDEX, eventTableRef);
 		eventTableRef = -1;
@@ -308,15 +275,6 @@ std::string LuaScriptInterface::getMetricsScope() const {
 }
 
 bool LuaScriptInterface::callFunction(int params) const {
-#ifdef STATS_ENABLED
-	int32_t scriptId;
-	int32_t callbackId;
-	bool timerEvent;
-	LuaScriptInterface* scriptInterface;
-	getScriptEnv()->getEventInfo(scriptId, scriptInterface, callbackId, timerEvent);
-	std::chrono::high_resolution_clock::time_point time_point = std::chrono::high_resolution_clock::now();
-#endif
-
 	metrics::lua_latency measure(getMetricsScope());
 	bool result = false;
 	const int size = lua_gettop(luaState);

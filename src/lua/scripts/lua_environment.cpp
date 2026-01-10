@@ -22,8 +22,6 @@
 #include "lua/scripts/script_environment.hpp"
 #include "lua/global/lua_timer_event_descr.hpp"
 #include "lib/di/container.hpp"
-#include "utils/stats.hpp"
-#include "config/configmanager.hpp"
 
 bool LuaEnvironment::shuttingDown = false;
 
@@ -90,9 +88,6 @@ bool LuaEnvironment::closeState() {
 	areaIdMap.clear();
 	timerEvents.clear();
 	cacheFiles.clear();
-#ifdef STATS_ENABLED
-	addEventStackTracebackHashCache.clear();
-#endif
 
 	lua_close(luaState);
 	luaState = nullptr;
@@ -155,9 +150,6 @@ void LuaEnvironment::executeTimerEvent(uint32_t eventIndex) {
 
 	// call the function
 	if (reserveScriptEnv()) {
-#ifdef STATS_ENABLED
-		std::chrono::high_resolution_clock::time_point time_point = std::chrono::high_resolution_clock::now();
-#endif
 		ScriptEnvironment* env = getScriptEnv();
 		env->setTimerEvent();
 		env->setScriptId(timerEventDesc.scriptId, this);

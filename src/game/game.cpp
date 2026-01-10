@@ -73,7 +73,6 @@
 #include "server/network/webhook/webhook.hpp"
 #include "server/server.hpp"
 #include "utils/tools.hpp"
-#include "utils/stats.hpp"
 #include "utils/wildcardtree.hpp"
 #include "creatures/players/vocations/vocation.hpp"
 
@@ -680,9 +679,6 @@ void Game::setGameState(GameState_t newState) {
 
 			g_dispatcher().addEvent([this] { shutdown(); }, __FUNCTION__);
 
-#ifdef STATS_ENABLED
-			g_stats().stop();
-#endif
 			break;
 		}
 
@@ -6862,10 +6858,6 @@ void Game::checkCreatures() {
 	});
 
 	index = (index + 1) % EVENT_CREATURECOUNT;
-
-#ifdef STATS_ENABLED
-	g_stats().playersOnline = getPlayersOnline();
-#endif
 }
 
 void Game::changeSpeed(const std::shared_ptr<Creature> &creature, int32_t varSpeedDelta) {
@@ -8547,13 +8539,12 @@ void Game::checkImbuementsAndSereneStatus() {
 		}
 
 		const auto &party = mapPlayer->getParty();
-		bool hasNearbyPartyMembers = party ? hasPartyMembersNearby(mapPlayer) : false;
-		bool hasLessThanSixMonsters = isPlayerNoBoxed(mapPlayer);
+		if (party) {
+			mapPlayer->setSerene(isPlayerNoBoxed(mapPlayer));
+			continue;
+		}
 
-		bool condition1 = !party || !hasNearbyPartyMembers;
-		bool condition2 = hasLessThanSixMonsters;
-
-		mapPlayer->setSerene(condition1 && condition2);
+		mapPlayer->setSerene(true);
 	}
 }
 
@@ -8660,10 +8651,6 @@ void Game::shutdown() {
 	map.spawnsMonster.clear();
 	map.spawnsNpc.clear();
 	raids.clear();
-
-#ifdef STATS_ENABLED
-	g_stats().shutdown();
-#endif
 
 	if (serviceManager) {
 		serviceManager->stop();
@@ -11912,45 +11899,6 @@ void Game::createIllusion(const std::shared_ptr<Player> &player, const Outfit_t 
 	player->addCondition(outfitCondition);
 }
 
-bool Game::hasPartyMembersNearby(const std::shared_ptr<Player> &player) {
-	if (!player) {
-		return false;
-	}
-
-	const auto &party = player->getParty();
-	if (!party) {
-		return false;
-	}
-
-	const Position &centerPos = player->getPosition();
-	for (int offsetX = -3; offsetX <= 3; ++offsetX) {
-		for (int offsetY = -3; offsetY <= 3; ++offsetY) {
-			if (offsetX == 0 && offsetY == 0) {
-				continue;
-			}
-
-			const auto &tile = g_game().map.getTile(static_cast<uint16_t>(centerPos.x + offsetX), static_cast<uint16_t>(centerPos.y + offsetY), centerPos.z);
-			if (!tile) {
-				continue;
-			}
-
-			const auto &topCreature = tile->getTopCreature();
-			if (!topCreature) {
-				continue;
-			}
-
-			const auto &nearbyPlayer = topCreature->getPlayer();
-			if (nearbyPlayer && nearbyPlayer != player) {
-				if (nearbyPlayer->getParty() == party) {
-					return true;
-				}
-			}
-		}
-	}
-
-	return false;
-}
-
 bool Game::isPlayerNoBoxed(const std::shared_ptr<Player> &player) {
 	if (!player) {
 		return true;
@@ -11976,11 +11924,6 @@ bool Game::isPlayerNoBoxed(const std::shared_ptr<Player> &player) {
 			}
 
 			if (topCreature->getMaster() && topCreature->getMaster()->getPlayer() == player) {
-				continue;
-			}
-
-			// Ignore other players (including party members)
-			if (topCreature->getPlayer()) {
 				continue;
 			}
 
