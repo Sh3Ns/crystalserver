@@ -1389,7 +1389,7 @@ void Combat::setupChain(const std::shared_ptr<Weapon> &weapon) {
 		setParam(COMBAT_PARAM_BLOCKARMOR, true);
 	};
 
-	setChainCallback(g_configManager().getNumber(COMBAT_CHAIN_TARGETS), 1, true);
+	setChainCallback(g_configManager().getNumber(COMBAT_CHAIN_TARGETS), 3, true);
 
 	switch (weaponType) {
 		case WEAPON_FIST:
@@ -1850,7 +1850,7 @@ void Combat::setRuneSpellName(const std::string &value) {
 	runeSpellName = value;
 }
 
-std::vector<std::pair<Position, std::vector<uint32_t>>> Combat::pickChainTargets(const std::shared_ptr<Creature> &caster, const CombatParams &params, uint8_t chainDistance, uint8_t maxTargets, bool backtracking, bool aggressive, const std::shared_ptr<Creature> &initialTarget /* = nullptr */) {
+std::vector<std::pair<Position, std::vector<uint32_t>>> Combat::pickChainTargets(const std::shared_ptr<Creature> &caster, const CombatParams &params, uint8_t chainDistance, uint8_t maxTargets, bool aggressive, bool backtracking, const std::shared_ptr<Creature> &initialTarget /* = nullptr */) {
 	Benchmark bm_pickChain;
 	metrics::method_latency measure(__METRICS_METHOD_NAME__);
 	if (!caster) {
