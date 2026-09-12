@@ -69,7 +69,8 @@ bool ConfigManager::load() {
 		loadIntConfig(L, MARKET_REFRESH_PRICES, "marketRefreshPricesInterval", 30);
 		loadIntConfig(L, PREMIUM_DEPOT_LIMIT, "premiumDepotLimit", 8000);
 		loadIntConfig(L, SQL_PORT, "mysqlPort", 3306);
-		loadIntConfig(L, STATUS_PORT, "statusProtocolPort", 7171);
+		loadIntConfig(L, STATUS_PORT, "statusProtocolPort", 7173);
+		loadIntConfig(L, WORLD_ID, "worldId", 1);
 
 		loadStringConfig(L, AUTH_TYPE, "authType", "password");
 		loadStringConfig(L, HOUSE_RENT_PERIOD, "houseRentPeriod", "never");
@@ -125,6 +126,8 @@ bool ConfigManager::load() {
 	loadBoolConfig(L, ENABLE_OFFLINE_TRAINING, "enableOfflineTraining", true);
 	loadBoolConfig(L, ENABLE_MARKET, "enableMarket", true);
 	loadBoolConfig(L, ADVANCED_PARTY_PROTECTION, "advancedPartyProtection", true);
+	loadBoolConfig(L, MOUNT_SOUNDS, "mountSounds", true);
+	loadBoolConfig(L, LOG_PLAYER_IP, "logPlayerIP", true);
 	loadBoolConfig(L, RATE_USE_STAGES, "rateUseStages", false);
 	loadBoolConfig(L, REFUND_BEGINNING_WEAPON_MANA, "refundBeginningWeaponMana", false);
 	loadBoolConfig(L, REMOVE_BEGINNING_WEAPON_AMMO, "removeBeginningWeaponAmmunition", true);
@@ -160,7 +163,6 @@ bool ConfigManager::load() {
 	loadBoolConfig(L, TOGGLE_SAVE_ASYNC, "toggleSaveAsync", false);
 	loadBoolConfig(L, TOGGLE_SAVE_INTERVAL_CLEAN_MAP, "toggleSaveIntervalCleanMap", false);
 	loadBoolConfig(L, TOGGLE_SAVE_INTERVAL, "toggleSaveInterval", false);
-	loadBoolConfig(L, TOGGLE_SERVER_IS_RETRO, "toggleServerIsRetroPVP", false);
 	loadBoolConfig(L, TOGGLE_TRAVELS_FREE, "toggleTravelsFree", false);
 	loadBoolConfig(L, TOGGLE_WHEELSYSTEM, "wheelSystemEnabled", true);
 	loadBoolConfig(L, VIP_AUTOLOOT_VIP_ONLY, "vipAutoLootVipOnly", false);
@@ -228,6 +230,7 @@ bool ConfigManager::load() {
 	loadFloatConfig(L, RATE_SOUL_REGEN_SPEED, "rateSoulRegenSpeed", 1.0);
 	loadFloatConfig(L, RATE_SOUL_REGEN, "rateSoulRegen", 1.0);
 	loadFloatConfig(L, RATE_SPELL_COOLDOWN, "rateSpellCooldown", 1.0);
+	loadFloatConfig(L, RATE_WEAPON_PROFICIENCY, "rateWeaponProficiency", 1.0);
 	loadFloatConfig(L, RUSE_CHANCE_FORMULA_A, "ruseChanceFormulaA", 0.0307576);
 	loadFloatConfig(L, RUSE_CHANCE_FORMULA_B, "ruseChanceFormulaB", 0.440697);
 	loadFloatConfig(L, RUSE_CHANCE_FORMULA_C, "ruseChanceFormulaC", 0.026);
@@ -267,6 +270,9 @@ bool ConfigManager::load() {
 	loadIntConfig(L, DEFAULT_DESPAWNRANGE, "deSpawnRange", 2);
 	loadIntConfig(L, DISCORD_WEBHOOK_DELAY_MS, "discordWebhookDelayMs", Webhook::DEFAULT_DELAY_MS);
 	loadIntConfig(L, EX_ACTIONS_DELAY_INTERVAL, "timeBetweenExActions", 1000);
+	loadIntConfig(L, NECKLACE_DELAY_INTERVAL, "timeBetweenNecklace", 200);
+	loadIntConfig(L, RING_DELAY_INTERVAL, "timeBetweenRing", 200);
+	loadIntConfig(L, PARALYZE_DELAY_INTERVAL, "timeAfterParalyze", 200);
 	loadIntConfig(L, EXP_FROM_PLAYERS_LEVEL_RANGE, "expFromPlayersLevelRange", 75);
 	loadIntConfig(L, FAMILIAR_TIME, "familiarTime", 30);
 	loadIntConfig(L, FORGE_BASE_SUCCESS_RATE, "forgeBaseSuccessRate", 50);
@@ -427,7 +433,6 @@ bool ConfigManager::load() {
 	loadStringConfig(L, FORGE_INFLUENCED_INTERVAL_TIME, "forgeInfluencedIntervalTime", "1");
 	loadStringConfig(L, FORGE_INFLUENCED_INTERVAL_TYPE, "forgeInfluencedIntervalType", "hour");
 	loadStringConfig(L, GLOBAL_SERVER_SAVE_TIME, "globalServerSaveTime", "06:00");
-	loadStringConfig(L, LOCATION, "location", "");
 	loadStringConfig(L, M_CONST, "memoryConst", "1<<16");
 	loadStringConfig(L, METRICS_PROMETHEUS_ADDRESS, "metricsPrometheusAddress", "localhost:9464");
 	loadStringConfig(L, OWNER_EMAIL, "ownerEmail", "");
@@ -438,6 +443,7 @@ bool ConfigManager::load() {
 	loadStringConfig(L, STORE_IMAGES_URL, "coinImagesURL", "");
 	loadStringConfig(L, TIBIADROME_CONCOCTION_TICK_TYPE, "tibiadromeConcoctionTickType", "online");
 	loadStringConfig(L, URL, "url", "");
+	loadStringConfig(L, WORLD_LOCATION, "worldLocation", "South America");
 	loadStringConfig(L, WORLD_TYPE, "worldType", "pvp");
 	loadStringConfig(L, LOGLEVEL, "logLevel", "info");
 

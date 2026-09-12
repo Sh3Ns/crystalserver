@@ -1249,7 +1249,7 @@ bool InstantSpell::playerCastInstant(const std::shared_ptr<Player> &player, std:
 		return false;
 	}
 
-	auto worldType = g_game().getWorldType();
+	auto worldType = g_game().worlds().getCurrentWorld()->type;
 	if (pzLocked && (worldType == WORLDTYPE_OPEN || worldType == WORLDTYPE_HARDCORE)) {
 		player->addInFightTicks(true);
 		player->updateLastAggressiveAction();
@@ -1510,7 +1510,7 @@ bool RuneSpell::executeUse(const std::shared_ptr<Player> &player, const std::sha
 		}
 	}
 
-	auto worldType = g_game().getWorldType();
+	auto worldType = g_game().worlds().getCurrentWorld()->type;
 	if (pzLocked && (worldType == WORLDTYPE_OPEN || worldType == WORLDTYPE_HARDCORE)) {
 		player->addInFightTicks(true);
 		player->updateLastAggressiveAction();

@@ -70,8 +70,6 @@
 #include "enums/player_cyclopedia.hpp"
 #include "enums/container_type.hpp"
 
-#include <memory>
-
 /*
  * NOTE: This namespace is used so that we can add functions without having to declare them in the ".hpp/.hpp" file
  * Do not use functions only in the .cpp scope without having a namespace, it may conflict with functions in other files of the same name
@@ -1067,17 +1065,9 @@ void ProtocolGame::disconnectClient(const std::string &message) const {
 }
 
 void ProtocolGame::writeToOutputBuffer(NetworkMessage &msg) {
-	if (g_dispatcher().context().isAsync()) {
-		auto msgPtr = std::make_shared<NetworkMessage>(msg);
-		g_dispatcher().addEvent(
-			[self = getThis(), msgPtr] {
-				self->getOutputBuffer(msgPtr->getLength())->append(*msgPtr);
-			},
-			__FUNCTION__
-		);
-	} else {
-		getOutputBuffer(msg.getLength())->append(msg);
-	}
+	g_dispatcher().safeCall([self = getThis(), msg = std::move(msg)] {
+		self->getOutputBuffer(msg.getLength())->append(msg);
+	});
 }
 
 void ProtocolGame::parsePacket(NetworkMessage &msg) {
@@ -2406,14 +2396,14 @@ void ProtocolGame::parseHighscores(NetworkMessage &msg) {
 	uint8_t category = msg.getByte();
 	auto vocation = msg.get<uint32_t>();
 	uint16_t page = 1;
-	const std::string worldName = msg.getString();
+	auto worldName = msg.getString();
 	msg.getByte(); // Game World Category
 	msg.getByte(); // BattlEye World Type
 	if (type == HIGHSCORE_GETENTRIES) {
 		page = std::max<uint16_t>(1, msg.get<uint16_t>());
 	}
 	uint8_t entriesPerPage = std::min<uint8_t>(30, std::max<uint8_t>(5, msg.getByte()));
-	g_game().playerHighscores(player, type, category, vocation, worldName, page, entriesPerPage);
+	g_game().playerHighscores(player, type, category, vocation, worldName == "OWN" || type == HIGHSCORE_OURRANK ? g_game().worlds().getCurrentWorld()->name : worldName, page, entriesPerPage);
 }
 
 void ProtocolGame::parseTaskHuntingAction(NetworkMessage &msg) {
@@ -2444,7 +2434,7 @@ void ProtocolGame::sendHighscoresNoData() {
 	writeToOutputBuffer(msg);
 }
 
-void ProtocolGame::sendHighscores(const std::vector<HighscoreCharacter> &characters, uint8_t categoryId, uint32_t vocationBaseId, uint16_t page, uint16_t pages, uint32_t updateTimer) {
+void ProtocolGame::sendHighscores(const std::string &selectedWorld, const std::vector<HighscoreCharacter> &characters, uint8_t categoryId, uint32_t vocationBaseId, uint16_t page, uint16_t pages, uint32_t updateTimer) {
 	if (oldProtocol) {
 		return;
 	}
@@ -2453,10 +2443,14 @@ void ProtocolGame::sendHighscores(const std::vector<HighscoreCharacter> &charact
 	msg.addByte(0xB1);
 	msg.addByte(0x00); // All data available
 
-	msg.addByte(1); // Worlds
+	const auto &worlds = g_game().worlds().getWorlds();
+	msg.addByte(worlds.size()); // Worlds
 	auto serverName = g_configManager().getString(SERVER_NAME);
-	msg.addString(serverName); // First World
-	msg.addString(serverName); // Selected World
+	for (const auto &world : worlds) {
+		msg.addString(world->name); // Worlds
+	}
+
+	msg.addString(selectedWorld); // Selected World
 
 	msg.addByte(0); // Game World Category: 0xFF(-1) - Selected World
 	msg.addByte(0); // BattlEye World Type
@@ -2501,12 +2495,12 @@ void ProtocolGame::sendHighscores(const std::vector<HighscoreCharacter> &charact
 	msg.add<uint16_t>(pages); // Pages
 
 	msg.addByte(characters.size()); // Character Count
-	for (const HighscoreCharacter &character : characters) {
+	for (const auto &character : characters) {
 		msg.add<uint32_t>(character.rank); // Rank
 		msg.addString(character.name); // Character Name
 		msg.addString(character.loyaltyTitle); // Character Loyalty Title
 		msg.addByte(character.vocation); // Vocation Id
-		msg.addString(serverName); // World
+		msg.addString(character.worldName); // World
 		msg.add<uint16_t>(character.level); // Level
 		msg.addByte((player->getGUID() == character.id)); // Player Indicator Boolean
 		msg.add<uint64_t>(character.points); // Points
@@ -3549,13 +3543,6 @@ void ProtocolGame::sendCreatureOutfit(const std::shared_ptr<Creature> &creature,
 	msg.addByte(0x8E);
 	msg.add<uint32_t>(creature->getID());
 	AddOutfit(msg, newOutfit);
-
-	if (!oldProtocol && newOutfit.lookMount != 0) {
-		msg.addByte(newOutfit.lookMountHead);
-		msg.addByte(newOutfit.lookMountBody);
-		msg.addByte(newOutfit.lookMountLegs);
-		msg.addByte(newOutfit.lookMountFeet);
-	}
 	writeToOutputBuffer(msg);
 }
 
@@ -3665,7 +3652,7 @@ void ProtocolGame::sendCreatureEmblem(const std::shared_ptr<Creature> &creature)
 }
 
 void ProtocolGame::sendCreatureSkull(const std::shared_ptr<Creature> &creature) {
-	if (g_game().getWorldType() != WORLDTYPE_OPEN) {
+	if (g_game().worlds().getCurrentWorld()->type != WORLDTYPE_OPEN) {
 		return;
 	}
 
@@ -4798,7 +4785,7 @@ void ProtocolGame::sendBlessingWindow() {
 	NetworkMessage msg;
 	msg.addByte(0x9B);
 
-	bool isRetro = g_configManager().getBoolean(TOGGLE_SERVER_IS_RETRO);
+	bool isRetro = g_game().isRetroPVP();
 
 	msg.addByte(isRetro ? 0x07 : 0x08);
 	for (auto blessing : magic_enum::enum_values<Blessings>()) {
@@ -7067,7 +7054,7 @@ void ProtocolGame::sendPartyCreatureShield(const std::shared_ptr<Creature> &targ
 }
 
 void ProtocolGame::sendPartyCreatureSkull(const std::shared_ptr<Creature> &target) {
-	if (g_game().getWorldType() != WORLDTYPE_OPEN) {
+	if (g_game().worlds().getCurrentWorld()->type != WORLDTYPE_OPEN) {
 		return;
 	}
 
@@ -7357,7 +7344,7 @@ void ProtocolGame::sendAddCreature(const std::shared_ptr<Creature> &creature, co
 	msg.add<uint16_t>(static_cast<uint16_t>(g_configManager().getNumber(STORE_COIN_PACKET)));
 
 	if (!oldProtocol) {
-		const bool exivaEnabled = g_game().getWorldType() == WORLDTYPE_OPTIONAL || !g_configManager().getBoolean(EXIVA_RESTRICTIONS_ONLY_OPTIONAL_WORLDS);
+		const bool exivaEnabled = g_game().worlds().getCurrentWorld()->type == WORLDTYPE_OPTIONAL || !g_configManager().getBoolean(EXIVA_RESTRICTIONS_ONLY_OPTIONAL_WORLDS);
 		msg.addByte(exivaEnabled ? 0x01 : 0x00); // exiva button enabled
 		if (exivaEnabled) {
 			sendExivaRestrictions(true);
@@ -7702,7 +7689,6 @@ void ProtocolGame::sendOutfitWindow() {
 	if (currentShader) {
 		currentOutfit.lookShader = currentShader->id;
 	}
-
 	AddOutfit(msg, currentOutfit);
 
 	if (oldProtocol) {
@@ -7751,11 +7737,12 @@ void ProtocolGame::sendOutfitWindow() {
 		return;
 	}
 
-	msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountHead);
-	msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountBody);
-	msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountLegs);
-	msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountFeet);
-
+	if (currentOutfit.lookMount == 0) {
+		msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountHead);
+		msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountBody);
+		msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountLegs);
+		msg.addByte(isSupportOutfit ? 0 : currentOutfit.lookMountFeet);
+	}
 	msg.add<uint16_t>(currentOutfit.lookFamiliarsType);
 
 	auto startOutfits = msg.getBufferPosition();
@@ -8319,12 +8306,6 @@ void ProtocolGame::AddCreature(NetworkMessage &msg, const std::shared_ptr<Creatu
 	if (!creature->isInGhostMode() && !creature->isInvisible()) {
 		const Outfit_t &outfit = creature->getCurrentOutfit();
 		AddOutfit(msg, outfit);
-		if (!oldProtocol && outfit.lookMount != 0) {
-			msg.addByte(outfit.lookMountHead);
-			msg.addByte(outfit.lookMountBody);
-			msg.addByte(outfit.lookMountLegs);
-			msg.addByte(outfit.lookMountFeet);
-		}
 	} else {
 		static Outfit_t outfit;
 		AddOutfit(msg, outfit);
@@ -8625,6 +8606,12 @@ void ProtocolGame::AddOutfit(NetworkMessage &msg, const Outfit_t &outfit, bool a
 
 	if (addMount) {
 		msg.add<uint16_t>(outfit.lookMount);
+		if (!oldProtocol && outfit.lookMount != 0) {
+			msg.addByte(outfit.lookMountHead);
+			msg.addByte(outfit.lookMountBody);
+			msg.addByte(outfit.lookMountLegs);
+			msg.addByte(outfit.lookMountFeet);
+		}
 	}
 
 	if (isOTCR) {
@@ -10612,7 +10599,7 @@ void ProtocolGame::sendWeaponProficiencyInfo(const uint16_t itemId) {
 }
 
 void ProtocolGame::parseExivaRestrictions(NetworkMessage &msg) {
-	if (!player || (g_game().getWorldType() == WORLDTYPE_OPTIONAL && !g_configManager().getBoolean(EXIVA_RESTRICTIONS_ONLY_OPTIONAL_WORLDS))) {
+	if (!player || (g_game().worlds().getCurrentWorld()->type == WORLDTYPE_OPTIONAL && !g_configManager().getBoolean(EXIVA_RESTRICTIONS_ONLY_OPTIONAL_WORLDS))) {
 		return;
 	}
 

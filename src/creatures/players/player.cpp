@@ -1403,7 +1403,7 @@ bool Player::canWalkthrough(const std::shared_ptr<Creature> &creature) {
 
 	if (player) {
 		const auto &playerTile = player->getTile();
-		if (!playerTile || (!playerTile->hasFlag(TILESTATE_NOPVPZONE) && !playerTile->hasFlag(TILESTATE_PROTECTIONZONE) && player->getLevel() > static_cast<uint32_t>(g_configManager().getNumber(PROTECTION_LEVEL)) && g_game().getWorldType() != WORLDTYPE_OPTIONAL)) {
+		if (!playerTile || (!playerTile->hasFlag(TILESTATE_NOPVPZONE) && !playerTile->hasFlag(TILESTATE_PROTECTIONZONE) && player->getLevel() > static_cast<uint32_t>(g_configManager().getNumber(PROTECTION_LEVEL)) && g_game().worlds().getCurrentWorld()->type != WORLDTYPE_OPTIONAL)) {
 			return false;
 		}
 
@@ -1451,7 +1451,7 @@ bool Player::canWalkthroughEx(const std::shared_ptr<Creature> &creature) const {
 	const auto &npc = creature->getNpc();
 	if (player) {
 		const auto &playerTile = player->getTile();
-		return playerTile && (playerTile->hasFlag(TILESTATE_NOPVPZONE) || playerTile->hasFlag(TILESTATE_PROTECTIONZONE) || player->getLevel() <= static_cast<uint32_t>(g_configManager().getNumber(PROTECTION_LEVEL)) || g_game().getWorldType() == WORLDTYPE_OPTIONAL);
+		return playerTile && (playerTile->hasFlag(TILESTATE_NOPVPZONE) || playerTile->hasFlag(TILESTATE_PROTECTIONZONE) || player->getLevel() <= static_cast<uint32_t>(g_configManager().getNumber(PROTECTION_LEVEL)) || g_game().worlds().getCurrentWorld()->type == WORLDTYPE_OPTIONAL);
 	} else if (npc) {
 		const auto &tile = npc->getTile();
 		const auto &houseTile = std::dynamic_pointer_cast<HouseTile>(tile);
@@ -2908,7 +2908,7 @@ void Player::onAttackedCreatureChangeZone(ZoneType_t zone) {
 				onAttackedCreatureDisappear(false);
 			}
 		}
-	} else if (zone == ZONE_NORMAL && g_game().getWorldType() == WORLDTYPE_OPTIONAL) {
+	} else if (zone == ZONE_NORMAL && g_game().worlds().getCurrentWorld()->type == WORLDTYPE_OPTIONAL) {
 		// attackedCreature can leave a pvp zone if not pzlocked
 		if (attackedCreature->getPlayer()) {
 			setAttackedCreature(nullptr);
@@ -2954,6 +2954,13 @@ bool Player::closeShopWindow() {
 }
 
 void Player::onWalk(Direction &dir) {
+	if (hasCondition(CONDITION_PARALYZE)) {
+		uint32_t delay = g_configManager().getNumber(PARALYZE_DELAY_INTERVAL);
+		setNextAction(OTSYS_TIME() + delay);
+		lastWalking = OTSYS_TIME() + delay;
+		return;
+	}
+
 	if (hasCondition(CONDITION_FEARED)) {
 		const Position pos = getNextPosition(dir, getPosition());
 
@@ -4185,8 +4192,13 @@ void Player::death(const std::shared_ptr<Creature> &lastHitCreature) {
 
 			const auto playerSkull = getSkull();
 			bool hasSkull = (playerSkull == Skulls_t::SKULL_RED || playerSkull == Skulls_t::SKULL_BLACK);
+			const auto &amulet = getInventoryItem(CONST_SLOT_NECKLACE);
+			const bool usingAol = amulet && amulet->getID() == ITEM_AMULETOFLOSS;
+			const bool twistProtectsAol = !hasSkull && pvpDeath && hasBlessing(1);
+			bool consumedBlessingProtection = false;
 			uint8_t maxBlessing = 8;
-			if (!hasSkull && pvpDeath && hasBlessing(1)) {
+			if (twistProtectsAol) {
+				consumedBlessingProtection = true;
 				auto storeCount = getBlessingCount(1, true);
 				if (storeCount > 0) {
 					auto currentStore = kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", 1))->get("amount");
@@ -4201,15 +4213,21 @@ void Player::death(const std::shared_ptr<Creature> &lastHitCreature) {
 				for (int i = 2; i <= maxBlessing; i++) {
 					auto storeCount = getBlessingCount(i, true);
 					if (storeCount > 0) {
+						consumedBlessingProtection = true;
 						auto currentStore = kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", i))->get("amount");
 						if (currentStore) {
 							auto newAmount = std::max(0, static_cast<int>(currentStore->getNumber()) - 1);
 							kv()->scoped("summary")->scoped("blessings")->scoped(fmt::format("{}", i))->set("amount", newAmount);
 						}
-					} else {
+					} else if (hasBlessing(i)) {
+						consumedBlessingProtection = true;
 						removeBlessing(i, 1);
 					}
 				}
+			}
+
+			if (usingAol && !consumedBlessingProtection) {
+				g_game().internalRemoveItem(amulet);
 			}
 		}
 		sendTextMessage(MESSAGE_EVENT_ADVANCE, blessOutput.str());
@@ -6416,7 +6434,7 @@ void Player::onCombatRemoveCondition(const std::shared_ptr<Condition> &condition
 	// Creature::onCombatRemoveCondition(condition);
 	if (condition->getId() > 0) {
 		// Means the condition is from an item, id == slot
-		if (g_game().getWorldType() == WORLDTYPE_HARDCORE) {
+		if (g_game().worlds().getCurrentWorld()->type == WORLDTYPE_HARDCORE) {
 			const auto &item = getInventoryItem(static_cast<Slots_t>(condition->getId()));
 			if (item) {
 				// 25% chance to destroy the item
@@ -6462,7 +6480,7 @@ void Player::onAttackedCreature(const std::shared_ptr<Creature> &target) {
 
 	const auto &targetPlayer = target->getPlayer();
 	if (targetPlayer && !isPartner(targetPlayer) && !isGuildMate(targetPlayer)) {
-		if (!pzLocked && g_game().getWorldType() == WORLDTYPE_HARDCORE) {
+		if (!pzLocked && g_game().worlds().getCurrentWorld()->type == WORLDTYPE_HARDCORE) {
 			pzLocked = true;
 			sendIcons();
 		}
@@ -7121,7 +7139,7 @@ Skulls_t Player::getSkull() const {
 }
 
 Skulls_t Player::getSkullClient(const std::shared_ptr<Creature> &creature) {
-	if (!creature || g_game().getWorldType() != WORLDTYPE_OPEN) {
+	if (!creature || g_game().worlds().getCurrentWorld()->type != WORLDTYPE_OPEN) {
 		return SKULL_NONE;
 	}
 
@@ -7187,7 +7205,7 @@ void Player::clearAttacked() {
 }
 
 void Player::addUnjustifiedDead(const std::shared_ptr<Player> &attacked) {
-	if (hasFlag(PlayerFlags_t::NotGainInFight) || hasFlag(PlayerFlags_t::NotGainUnjustified) || attacked == getPlayer() || g_game().getWorldType() == WORLDTYPE_HARDCORE) {
+	if (hasFlag(PlayerFlags_t::NotGainInFight) || hasFlag(PlayerFlags_t::NotGainUnjustified) || attacked == getPlayer() || g_game().worlds().getCurrentWorld()->type == WORLDTYPE_HARDCORE) {
 		return;
 	}
 
@@ -7321,7 +7339,7 @@ double Player::getLostPercent() const {
 		return std::max<int32_t>(0, deathLosePercent) / 100.;
 	}
 
-	bool isRetro = g_configManager().getBoolean(TOGGLE_SERVER_IS_RETRO);
+	bool isRetro = g_game().isRetroPVP();
 	const auto factor = (isRetro ? 6.31 : 8);
 	double percentReduction = (blessingCount * factor) / 100.;
 
@@ -8448,9 +8466,9 @@ void Player::sendHighscoresNoData() const {
 	}
 }
 
-void Player::sendHighscores(const std::vector<HighscoreCharacter> &characters, uint8_t categoryId, uint32_t vocationId, uint16_t page, uint16_t pages, uint32_t updateTimer) const {
+void Player::sendHighscores(const std::string &selectedWorld, const std::vector<HighscoreCharacter> &characters, uint8_t categoryId, uint32_t vocationId, uint16_t page, uint16_t pages, uint32_t updateTimer) const {
 	if (client) {
-		client->sendHighscores(characters, categoryId, vocationId, page, pages, updateTimer);
+		client->sendHighscores(selectedWorld, characters, categoryId, vocationId, page, pages, updateTimer);
 	}
 }
 
@@ -8529,7 +8547,7 @@ void Player::onThink(uint32_t interval) {
 		}
 	}
 
-	if (g_game().getWorldType() != WORLDTYPE_HARDCORE) {
+	if (g_game().worlds().getCurrentWorld()->type != WORLDTYPE_HARDCORE) {
 		checkSkullTicks(interval / 1000);
 	}
 
@@ -10288,6 +10306,20 @@ void Player::forgeFuseItems(ForgeAction_t actionType, uint16_t firstItemId, uint
 		return;
 	}
 
+	auto configKey = convergence ? FORGE_CONVERGENCE_FUSION_DUST_COST : FORGE_FUSION_DUST_COST;
+	auto dustCost = static_cast<uint64_t>(g_configManager().getNumber(configKey));
+	if (getForgeDusts() < dustCost) {
+		sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
+		return;
+	}
+	if (coreCount > 0) {
+		const auto &[sliverCountAvail, coreCountAvail] = getForgeSliversAndCores();
+		if (coreCountAvail < coreCount) {
+			sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
+			return;
+		}
+	}
+
 	ForgeHistory history;
 	history.actionType = actionType;
 	history.tier = tier;
@@ -10348,8 +10380,6 @@ void Player::forgeFuseItems(ForgeAction_t actionType, uint16_t firstItemId, uint
 		return;
 	}
 
-	auto configKey = convergence ? FORGE_CONVERGENCE_FUSION_DUST_COST : FORGE_FUSION_DUST_COST;
-	auto dustCost = static_cast<uint64_t>(g_configManager().getNumber(configKey));
 	if (convergence) {
 		firstForgedItem->setTier(tier + 1);
 		history.dustCost = dustCost;
@@ -10531,6 +10561,12 @@ void Player::forgeTransferItemTier(ForgeAction_t actionType, uint16_t donorItemI
 		return;
 	}
 
+	auto configKey = convergence ? FORGE_CONVERGENCE_TRANSFER_DUST_COST : FORGE_TRANSFER_DUST_COST;
+	if (getForgeDusts() < g_configManager().getNumber(configKey)) {
+		sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
+		return;
+	}
+
 	ForgeHistory history;
 	history.actionType = actionType;
 	history.tier = tier;
@@ -10541,6 +10577,30 @@ void Player::forgeTransferItemTier(ForgeAction_t actionType, uint16_t donorItemI
 		g_logger().error("[Log 1] Player with name {} failed to transfer item with id {}", getName(), donorItemId);
 		sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
 		return;
+	}
+	uint8_t coresAmount = 0;
+	uint64_t cost = 0;
+	for (const auto &itemClassification : g_game().getItemsClassifications()) {
+		if (itemClassification->id != donorItem->getClassification()) {
+			continue;
+		}
+		if (!itemClassification->tiers.contains(donorItem->getTier())) {
+			g_logger().error("[{}] Failed to find tier {} for item {} in classification {}", __FUNCTION__, donorItem->getTier(), donorItem->getClassification(), itemClassification->id);
+			sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
+			break;
+		}
+		const uint8_t toTier = convergence ? donorItem->getTier() : donorItem->getTier() - 1;
+		auto tierPriecs = itemClassification->tiers.at(toTier);
+		cost = convergence ? tierPriecs.convergenceTransferPrice : tierPriecs.regularPrice;
+		coresAmount = tierPriecs.corePrice;
+		break;
+	}
+	if (coresAmount > 0) {
+		const auto &[sliverCountAvail, coreCountAvail] = getForgeSliversAndCores();
+		if (coreCountAvail < coresAmount) {
+			sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
+			return;
+		}
 	}
 	auto returnValue = g_game().internalRemoveItem(donorItem, 1);
 	if (returnValue != RETURNVALUE_NOERROR) {
@@ -10584,13 +10644,6 @@ void Player::forgeTransferItemTier(ForgeAction_t actionType, uint16_t donorItemI
 		return;
 	}
 
-	auto configKey = convergence ? FORGE_CONVERGENCE_TRANSFER_DUST_COST : FORGE_TRANSFER_DUST_COST;
-	if (getForgeDusts() < g_configManager().getNumber(configKey)) {
-		g_logger().error("[Log 8] Failed to remove transfer dusts from player with name {}", getName());
-		sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
-		return;
-	}
-
 	setForgeDusts(getForgeDusts() - g_configManager().getNumber(configKey));
 
 	if (convergence) {
@@ -10604,25 +10657,6 @@ void Player::forgeTransferItemTier(ForgeAction_t actionType, uint16_t donorItemI
 		sendCancelMessage(getReturnMessage(returnValue));
 		sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
 		return;
-	}
-
-	uint8_t coresAmount = 0;
-	uint64_t cost = 0;
-	for (const auto &itemClassification : g_game().getItemsClassifications()) {
-		if (itemClassification->id != donorItem->getClassification()) {
-			continue;
-		}
-		if (!itemClassification->tiers.contains(donorItem->getTier())) {
-			g_logger().error("[{}] Failed to find tier {} for item {} in classification {}", __FUNCTION__, donorItem->getTier(), donorItem->getClassification(), itemClassification->id);
-			sendForgeError(RETURNVALUE_CONTACTADMINISTRATOR);
-			break;
-		}
-
-		const uint8_t toTier = convergence ? donorItem->getTier() : donorItem->getTier() - 1;
-		auto tierPriecs = itemClassification->tiers.at(toTier);
-		cost = convergence ? tierPriecs.convergenceTransferPrice : tierPriecs.regularPrice;
-		coresAmount = tierPriecs.corePrice;
-		break;
 	}
 
 	if (!removeItemCountById(ITEM_FORGE_CORE, coresAmount)) {
@@ -12291,6 +12325,7 @@ EquippedWeaponProficiencyBonuses &Player::getEquippedWeaponProficiency() {
 
 void Player::addWeaponProficiencyExperience(const std::shared_ptr<MonsterType> &mType, const ForgeClassifications_t classification, const bool bossSoulpit) {
 	uint32_t addProficiencyExperience = 0;
+	const auto weaponProficiencyRate = std::max(0.0f, g_configManager().getFloat(RATE_WEAPON_PROFICIENCY));
 	if (bossSoulpit) {
 		addProficiencyExperience = 1500;
 	} else {
@@ -12345,6 +12380,8 @@ void Player::addWeaponProficiencyExperience(const std::shared_ptr<MonsterType> &
 			}
 		}
 	}
+
+	addProficiencyExperience = static_cast<uint32_t>(std::round(addProficiencyExperience * weaponProficiencyRate));
 
 	const auto &weapon = getWeapon(true);
 	if (!weapon) {
@@ -12694,7 +12731,10 @@ void Player::removeEquippedWeaponProficiency(const uint16_t itemId) {
 }
 
 bool Player::canExiva(const std::string &spellParam) const {
-	if (g_game().getWorldType() != WORLDTYPE_OPTIONAL && !g_configManager().getBoolean(EXIVA_RESTRICTIONS_ONLY_OPTIONAL_WORLDS)) {
+	const bool restrictOnlyOptional = g_configManager().getBoolean(EXIVA_RESTRICTIONS_ONLY_OPTIONAL_WORLDS);
+	const bool isOptionalWorld = g_game().worlds().getCurrentWorld()->type == WORLDTYPE_OPTIONAL;
+
+	if (restrictOnlyOptional && !isOptionalWorld) {
 		return true;
 	}
 
