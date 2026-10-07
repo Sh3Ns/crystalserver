@@ -18,6 +18,9 @@
 #include "lua/functions/creatures/combat/condition_functions.hpp"
 
 #include "creatures/combat/condition.hpp"
+
+#include <memory>
+
 #include "enums/player_icons.hpp"
 #include "game/game.hpp"
 #include "lua/functions/lua_functions_loader.hpp"

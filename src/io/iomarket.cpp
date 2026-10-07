@@ -17,14 +17,18 @@
 
 #include "io/iomarket.hpp"
 
+#include "account/account.hpp"
 #include "config/configmanager.hpp"
+#include "creatures/players/player.hpp"
 #include "database/databasetasks.hpp"
+#include "enums/account_coins.hpp"
+#include "enums/account_errors.hpp"
 #include "game/game.hpp"
 #include "game/scheduling/dispatcher.hpp"
 #include "game/scheduling/save_manager.hpp"
 #include "io/iologindata.hpp"
 #include "items/containers/inbox/inbox.hpp"
-#include "creatures/players/player.hpp"
+#include "items/item.hpp"
 
 uint8_t IOMarket::getTierFromDatabaseTable(const std::string &string) {
 	auto tier = static_cast<uint8_t>(std::atoi(string.c_str()));
@@ -42,8 +46,10 @@ MarketOfferList IOMarket::getActiveOffers(MarketAction_t action) {
 	std::string query = fmt::format(
 		"SELECT `id`, `itemtype`, `amount`, `price`, `tier`, `created`, `anonymous`, "
 		"(SELECT `name` FROM `players` WHERE `id` = `player_id`) AS `player_name` "
-		"FROM `market_offers` WHERE `sale` = {} AND `world_id` = {}",
-		action, g_game().worlds().getCurrentWorld()->id
+		"FROM `market_offers` WHERE `sale` = {} AND `world_id` = {} "
+		"ORDER BY `id` DESC "
+		"LIMIT {}",
+		action, g_game().worlds().getCurrentWorld()->id, MAX_MARKET_OFFERS_RETURNED
 	);
 
 	DBResult_ptr result = g_database().storeQuery(query);
@@ -75,8 +81,8 @@ MarketOfferList IOMarket::getActiveOffers(MarketAction_t action, uint16_t itemId
 	MarketOfferList offerList;
 
 	std::string query = fmt::format(
-		"SELECT `id`, `amount`, `price`, `tier`, `created`, `anonymous`, (SELECT `name` FROM `players` WHERE `id` = `player_id`) AS `player_name` FROM `market_offers` WHERE `sale` = {} AND `itemtype` = {} AND `tier` = {} AND `world_id` = {}",
-		action, itemId, std::to_string(tier), g_game().worlds().getCurrentWorld()->id
+		"SELECT `id`, `amount`, `price`, `tier`, `created`, `anonymous`, (SELECT `name` FROM `players` WHERE `id` = `player_id`) AS `player_name` FROM `market_offers` WHERE `sale` = {} AND `itemtype` = {} AND `tier` = {} AND `world_id` = {} ORDER BY `id` DESC LIMIT {}",
+		action, itemId, std::to_string(tier), g_game().worlds().getCurrentWorld()->id, MAX_MARKET_OFFERS_PER_SIDE
 	);
 
 	DBResult_ptr result = Database::getInstance().storeQuery(query);
@@ -261,11 +267,271 @@ void IOMarket::checkExpiredOffers() {
 	g_dispatcher().scheduleEvent(checkExpiredMarketOffersEachMinutes * 60 * 1000, IOMarket::checkExpiredOffers, __FUNCTION__);
 }
 
+g_dispatcher().scheduleEvent(checkExpiredMarketOffersEachMinutes * 60 * 1000, IOMarket::checkExpiredOffers, __FUNCTION__);
+}
+
+void IOMarket::checkWebOrders() {
+	if (!g_configManager().getBoolean(TOGGLE_WEB_MARKET_ORDERS)) {
+		return;
+	}
+
+	int32_t worldId = g_configManager().getNumber(WORLD_ID);
+
+	std::ostringstream query;
+	query << "SELECT `id`, `offer_id`, `buyer_id`, `buyer_account_id`, `seller_id`, `seller_account_id`, `itemtype`, `amount`, `price`, `tier`, `currency_type` "
+		  << "FROM `market_web_orders` WHERE `status` = 'PENDING' AND `world_id` = " << worldId << " ORDER BY `id` ASC LIMIT 20";
+	g_databaseTasks().store(query.str(), IOMarket::processWebOrders);
+
+	int32_t interval = g_configManager().getNumber(WEB_MARKET_ORDERS_INTERVAL);
+	if (interval <= 0) {
+		return;
+	}
+
+	g_dispatcher().scheduleEvent(interval, IOMarket::checkWebOrders, __FUNCTION__);
+}
+
+void IOMarket::processWebOrders(const DBResult_ptr &result, bool) {
+	if (!result) {
+		return;
+	}
+
+	Database &db = Database::getInstance();
+
+	do {
+		uint64_t orderId = result->getNumber<uint64_t>("id");
+		uint32_t offerId = result->getNumber<uint32_t>("offer_id");
+		uint32_t buyerId = result->getNumber<uint32_t>("buyer_id");
+		uint32_t buyerAccountId = result->getNumber<uint32_t>("buyer_account_id");
+		uint32_t sellerId = result->getNumber<uint32_t>("seller_id");
+		uint32_t sellerAccountId = result->getNumber<uint32_t>("seller_account_id");
+		uint16_t itemId = result->getNumber<uint16_t>("itemtype");
+		uint16_t amount = result->getNumber<uint16_t>("amount");
+		uint64_t totalPrice = result->getNumber<uint64_t>("price");
+		uint8_t tier = result->getNumber<uint8_t>("tier");
+		std::string currencyType = result->getString("currency_type");
+
+		std::ostringstream lockQuery;
+		lockQuery << "UPDATE `market_web_orders` SET `status` = 'PROCESSING' WHERE `id` = " << orderId << " AND `status` = 'PENDING'";
+		if (!db.executeQuery(lockQuery.str())) {
+			continue;
+		}
+
+		auto failOrder = [&](const std::string &reason) {
+			std::ostringstream failQuery;
+			failQuery << "UPDATE `market_web_orders` SET `status` = 'FAILED', `fail_reason` = " << db.escapeString(reason)
+				  << ", `processed_at` = UNIX_TIMESTAMP() WHERE `id` = " << orderId;
+			db.executeQuery(failQuery.str());
+		};
+
+		const ItemType &it = Item::items[itemId];
+		if (it.id == 0) {
+			failOrder("Invalid item type id");
+			continue;
+		}
+
+		std::ostringstream offerQuery;
+		offerQuery << "SELECT `id`, `amount`, `price`, `tier`, `itemtype` FROM `market_offers` WHERE `id` = " << offerId;
+		DBResult_ptr offerRes = db.storeQuery(offerQuery.str());
+		if (!offerRes) {
+			failOrder("Market offer no longer available on market");
+			continue;
+		}
+
+		uint16_t offerAmount = offerRes->getNumber<uint16_t>("amount");
+		uint16_t offerItemType = offerRes->getNumber<uint16_t>("itemtype");
+		uint8_t offerTier = offerRes->getNumber<uint8_t>("tier");
+
+		if (offerItemType != itemId || offerTier != tier || offerAmount < amount) {
+			failOrder("Market offer quantity, item or tier mismatch");
+			continue;
+		}
+
+		const auto &buyer = g_game().getPlayerByGUID(buyerId, true);
+		if (!buyer) {
+			failOrder("Buyer character not found");
+			continue;
+		}
+
+		bool buyerCharged = false;
+
+		if (currencyType == "tibia_coin") {
+			if (buyer->getAccount() && buyer->getAccount()->removeCoins(enumToValue(CoinType::Transferable), totalPrice, "Web Market Purchase") == enumToValue(AccountErrors_t::Ok)) {
+				buyerCharged = true;
+			} else {
+				std::ostringstream coinCheck;
+				coinCheck << "SELECT `coins` FROM `accounts` WHERE `id` = " << buyerAccountId;
+				DBResult_ptr coinRes = db.storeQuery(coinCheck.str());
+				if (coinRes && coinRes->getNumber<uint64_t>("coins") >= totalPrice) {
+					std::ostringstream chargeCoins;
+					chargeCoins << "UPDATE `accounts` SET `coins` = `coins` - " << totalPrice << " WHERE `id` = " << buyerAccountId;
+					if (db.executeQuery(chargeCoins.str())) {
+						buyerCharged = true;
+					}
+				}
+			}
+		} else if (currencyType == "gold") {
+			if (buyer->isOffline()) {
+				std::ostringstream balQuery;
+				balQuery << "SELECT `balance` FROM `players` WHERE `id` = " << buyerId;
+				DBResult_ptr balRes = db.storeQuery(balQuery.str());
+				if (balRes && balRes->getNumber<uint64_t>("balance") >= totalPrice) {
+					std::ostringstream chargeBal;
+					chargeBal << "UPDATE `players` SET `balance` = `balance` - " << totalPrice << " WHERE `id` = " << buyerId;
+					if (db.executeQuery(chargeBal.str())) {
+						buyer->setBankBalance(balRes->getNumber<uint64_t>("balance") - totalPrice);
+						buyerCharged = true;
+					}
+				}
+			} else {
+				if (buyer->getBankBalance() >= totalPrice) {
+					buyer->setBankBalance(buyer->getBankBalance() - totalPrice);
+					buyerCharged = true;
+				}
+			}
+		} else {
+			failOrder("Unsupported currency type: " + currencyType);
+			continue;
+		}
+
+		if (!buyerCharged) {
+			failOrder("Buyer has insufficient balance/coins");
+			continue;
+		}
+
+		const auto &playerInbox = buyer->getInbox();
+		bool deliverySuccess = true;
+
+		if (it.stackable) {
+			uint16_t tmpAmount = amount;
+			while (tmpAmount > 0) {
+				uint16_t stackCount = std::min<uint16_t>(100, tmpAmount);
+				const auto &item = Item::CreateItem(it.id, stackCount);
+				if (!item) {
+					deliverySuccess = false;
+					break;
+				}
+				if (tier != 0) {
+					item->setAttribute(ItemAttribute_t::TIER, tier);
+				}
+				if (g_game().internalAddItem(playerInbox, item, INDEX_WHEREEVER, FLAG_NOLIMIT) != RETURNVALUE_NOERROR) {
+					deliverySuccess = false;
+					break;
+				}
+				tmpAmount -= stackCount;
+			}
+		} else {
+			int32_t subType = (it.charges != 0) ? it.charges : -1;
+			for (uint16_t i = 0; i < amount; ++i) {
+				const auto &item = Item::CreateItem(it.id, subType);
+				if (!item) {
+					deliverySuccess = false;
+					break;
+				}
+				if (tier != 0) {
+					item->setAttribute(ItemAttribute_t::TIER, tier);
+				}
+				if (g_game().internalAddItem(playerInbox, item, INDEX_WHEREEVER, FLAG_NOLIMIT) != RETURNVALUE_NOERROR) {
+					deliverySuccess = false;
+					break;
+				}
+			}
+		}
+
+		if (!deliverySuccess) {
+			if (currencyType == "tibia_coin") {
+				if (buyer->getAccount()) {
+					buyer->getAccount()->addCoins(enumToValue(CoinType::Transferable), totalPrice, "Web Market Purchase Refund");
+				} else {
+					std::ostringstream refundCoins;
+					refundCoins << "UPDATE `accounts` SET `coins` = `coins` + " << totalPrice << " WHERE `id` = " << buyerAccountId;
+					db.executeQuery(refundCoins.str());
+				}
+			} else {
+				if (buyer->isOffline()) {
+					std::ostringstream refundBal;
+					refundBal << "UPDATE `players` SET `balance` = `balance` + " << totalPrice << " WHERE `id` = " << buyerId;
+					db.executeQuery(refundBal.str());
+				} else {
+					buyer->setBankBalance(buyer->getBankBalance() + totalPrice);
+				}
+			}
+			failOrder("Failed to deliver items to buyer inbox");
+			continue;
+		}
+
+		if (buyer->isOffline()) {
+			g_saveManager().savePlayer(buyer);
+		} else {
+			buyer->sendTextMessage(MESSAGE_EVENT_ADVANCE, "Your purchase on the Web Market was completed! The item has been delivered to your Inbox.");
+		}
+
+		if (currencyType == "tibia_coin") {
+			const auto &seller = g_game().getPlayerByGUID(sellerId, false);
+			if (seller && seller->getAccount()) {
+				seller->getAccount()->addCoins(enumToValue(CoinType::Transferable), totalPrice, "Web Market Sale");
+			} else {
+				std::ostringstream creditCoins;
+				creditCoins << "UPDATE `accounts` SET `coins` = `coins` + " << totalPrice << " WHERE `id` = " << sellerAccountId;
+				db.executeQuery(creditCoins.str());
+			}
+		} else {
+			const auto &seller = g_game().getPlayerByGUID(sellerId, false);
+			if (seller) {
+				seller->setBankBalance(seller->getBankBalance() + totalPrice);
+				seller->sendTextMessage(MESSAGE_EVENT_ADVANCE, "You sold an item on the Web Market! Gold has been credited to your bank account.");
+			} else {
+				IOLoginData::increaseBankBalance(sellerId, totalPrice);
+			}
+		}
+
+		if (offerAmount == amount) {
+			deleteOffer(offerId);
+		} else {
+			acceptOffer(offerId, amount);
+		}
+
+		appendHistory(buyerId, MARKETACTION_BUY, itemId, amount, totalPrice, getTimeNow(), tier, OFFERSTATE_ACCEPTEDEX);
+		appendHistory(sellerId, MARKETACTION_SELL, itemId, amount, totalPrice, getTimeNow(), tier, OFFERSTATE_ACCEPTED);
+
+		std::ostringstream compQuery;
+		compQuery << "UPDATE `market_web_orders` SET `status` = 'COMPLETED', `processed_at` = UNIX_TIMESTAMP() WHERE `id` = " << orderId;
+		db.executeQuery(compQuery.str());
+
+	} while (result->next());
+}
 uint32_t IOMarket::getPlayerOfferCount(uint32_t playerId) {
 	std::string query = fmt::format(
 		"SELECT COUNT(*) AS `count` FROM `market_offers` WHERE `player_id` = {} AND `world_id` = {}",
 		playerId, g_game().worlds().getCurrentWorld()->id
 	);
+DBResult_ptr result = Database::getInstance().storeQuery(query);
+	if (!result) {
+		return 0;
+	}
+	return result->getNumber<int32_t>("count");
+}
+
+uint32_t IOMarket::getPlayerOfferCountPerSide(uint32_t playerId, MarketAction_t action) {
+	std::ostringstream query;
+	query << "SELECT COUNT(*) AS `count` FROM `market_offers` WHERE `player_id` = " << playerId << " AND `sale` = " << action;
+
+	DBResult_ptr result = Database::getInstance().storeQuery(query.str());
+	if (!result) {
+		return 0;
+	}
+	return result->getNumber<int32_t>("count");
+}
+
+uint32_t IOMarket::getItemOfferCountPerSide(uint16_t itemId, uint8_t tier, MarketAction_t action) {
+	std::ostringstream query;
+	query << "SELECT COUNT(*) AS `count` FROM `market_offers` WHERE `itemtype` = " << itemId << " AND `tier` = " << std::to_string(tier) << " AND `sale` = " << action;
+
+	DBResult_ptr result = Database::getInstance().storeQuery(query.str());
+	if (!result) {
+		return 0;
+	}
+	return result->getNumber<int32_t>("count");
+}
 
 	DBResult_ptr result = Database::getInstance().storeQuery(query);
 	if (!result) {
@@ -312,7 +578,7 @@ void IOMarket::createOffer(uint32_t playerId, MarketAction_t action, uint32_t it
 		"INSERT INTO `market_offers` (`player_id`, `sale`, `itemtype`, `amount`, `created`, `anonymous`, `price`, `tier`, `world_id`) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {})",
 		playerId, action, itemId, amount, getTimeNow(), anonymous, price, std::to_string(tier), g_game().worlds().getCurrentWorld()->id
 	);
-	Database::getInstance().executeQuery(query);
+Database::getInstance().insertAndGetId(query);
 }
 
 void IOMarket::acceptOffer(uint32_t offerId, uint16_t amount) {

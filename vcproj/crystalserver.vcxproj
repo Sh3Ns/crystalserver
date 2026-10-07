@@ -78,6 +78,8 @@
     <ClInclude Include="..\src\io\filestream.hpp" />
     <ClInclude Include="..\src\io\functions\iologindata_load_player.hpp" />
     <ClInclude Include="..\src\io\functions\iologindata_save_player.hpp" />
+    <ClInclude Include="..\src\io\iobountytasks.hpp" />
+    <ClInclude Include="..\src\io\ioweeklytasks.hpp" />
     <ClInclude Include="..\src\io\io_wheel.hpp" />
     <ClInclude Include="..\src\io\iobestiary.hpp" />
     <ClInclude Include="..\src\io\ioguild.hpp" />
@@ -293,6 +295,8 @@
     <ClCompile Include="..\src\io\filestream.cpp" />
     <ClCompile Include="..\src\io\functions\iologindata_load_player.cpp" />
     <ClCompile Include="..\src\io\functions\iologindata_save_player.cpp" />
+    <ClCompile Include="..\src\io\iobountytasks.cpp" />
+    <ClCompile Include="..\src\io\ioweeklytasks.cpp" />
     <ClCompile Include="..\src\io\io_wheel.cpp" />
     <ClCompile Include="..\src\io\iobestiary.cpp" />
     <ClCompile Include="..\src\io\ioguild.cpp" />
@@ -459,6 +463,7 @@
     <EnableUnitySupport>true</EnableUnitySupport>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Condition="Exists('$(VCPKG_ROOT)\scripts\buildsystems\msbuild\vcpkg.props')" Project="$(VCPKG_ROOT)\scripts\buildsystems\msbuild\vcpkg.props" />
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
   <Import Project="settings.props" />
@@ -497,12 +502,12 @@
     <VcpkgAutoLink>true</VcpkgAutoLink>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <VcpkgInstalledDir>vcpkg_installed</VcpkgInstalledDir>
+    <VcpkgInstalledDir>$(MSBuildProjectDirectory)\vcpkg_installed</VcpkgInstalledDir>
     <VcpkgTriplet>x64-windows</VcpkgTriplet>
     <VcpkgConfiguration>Release</VcpkgConfiguration>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Vcpkg">
-    <VcpkgInstalledDir>vcpkg_installed</VcpkgInstalledDir>
+    <VcpkgInstalledDir>$(MSBuildProjectDirectory)\vcpkg_installed</VcpkgInstalledDir>
     <VcpkgTriplet>x64-windows</VcpkgTriplet>
     <VcpkgUseStatic>false</VcpkgUseStatic>
     <VcpkgUseMD>false</VcpkgUseMD>
@@ -592,11 +597,11 @@
     <Message Text="RunProtoCompile value: $(RunProtoCompile)" Importance="high" />
   </Target>
   <PropertyGroup Condition="'$(RunProtoCompile)'=='true'">
-    <ProtocPath>$(ProjectDir)vcpkg_installed\$(VcpkgTriplet)\tools\protobuf\protoc</ProtocPath>
-    <ProtoPath>..\$(SourcePath)\protobuf</ProtoPath>
+    <ProtocPath>$(ProjectDir)vcpkg_installed\$(VcpkgTriplet)\tools\protobuf\protoc.exe</ProtocPath>
+    <ProtoPath>$(ProjectDir)..\$(SourcePath)\protobuf</ProtoPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(RunProtoCompile)'=='false'">
-    <ProtocPath>$(ProjectDir)vcpkg_installed\$(VcpkgTriplet)\tools\protobuf\protoc</ProtocPath>
+    <ProtocPath>$(ProjectDir)vcpkg_installed\$(VcpkgTriplet)\tools\protobuf\protoc.exe</ProtocPath>
     <ProtoPath>$(GITHUB_WORKSPACE)\src\protobuf</ProtoPath>
   </PropertyGroup>
   <ItemGroup>
@@ -616,6 +621,7 @@
     </ItemGroup>
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Condition="Exists('$(VCPKG_ROOT)\scripts\buildsystems\msbuild\vcpkg.targets')" Project="$(VCPKG_ROOT)\scripts\buildsystems\msbuild\vcpkg.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>

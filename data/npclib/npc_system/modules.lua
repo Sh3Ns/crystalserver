@@ -113,6 +113,7 @@ if Modules == nil then
 				player:setVocation(promotion)
 				player:addMinorCharmEchoes(100)
 				player:kv():set("promoted", true)
+				player:sendBannerType(BANNER_TYPE_PROMOTION_GRANTED)
 			end
 		else
 			npcHandler:say("You need a premium account in order to get promoted.", npc, player)
@@ -585,7 +586,9 @@ if Modules == nil then
 		local destination = Position(parameters.destination)
 
 		if player:isPremium() or not parameters.premium then
-			if player:removeMoneyBank(cost) then
+			if player:isPzLocked(player) then
+				module.npcHandler:say("Get out of there with this blood.", npc, player)
+			elseif player:removeMoneyBank(cost) then
 				local position = player:getPosition()
 				player:teleportTo(destination)
 

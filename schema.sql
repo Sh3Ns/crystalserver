@@ -18,7 +18,7 @@ VALUES ('Crystal', 'pvp', 'Welcome to the Crystal Server!', 'South America', '12
 
 -- Table structure `server_config`
 CREATE TABLE IF NOT EXISTS `server_config` (
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     `config` varchar(50) NOT NULL,
     `value` varchar(256) NOT NULL DEFAULT '',
     CONSTRAINT `server_config_pk` PRIMARY KEY (`world_id`, `config`),
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS `server_config` (
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-INSERT INTO `server_config` (`config`, `value`, `world_id`) VALUES ('db_version', '62', 1), ('motd_hash', '', 1), ('motd_num', '0', 1), ('players_record', '0', 1);
+INSERT INTO `server_config` (`config`, `value`, `world_id`) VALUES ('db_version', '67', 1), ('motd_hash', '', 1), ('motd_num', '0', 1), ('players_record', '0', 1);
 
 -- Table structure `accounts`
 CREATE TABLE IF NOT EXISTS `accounts` (
@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS `players` (
     `bonus_rerolls` bigint(21) NOT NULL DEFAULT '0',
     `prey_wildcard` bigint(21) NOT NULL DEFAULT '0',
     `task_points` bigint(21) NOT NULL DEFAULT '0',
+    `soulseals_points` int unsigned NOT NULL DEFAULT '0',
     `quickloot_fallback` tinyint(1) DEFAULT '0',
     `lookmountbody` tinyint(3) unsigned NOT NULL DEFAULT '0',
     `lookmountfeet` tinyint(3) unsigned NOT NULL DEFAULT '0',
@@ -174,12 +175,17 @@ CREATE TABLE IF NOT EXISTS `players` (
     `boss_points` int NOT NULL DEFAULT '0',
     `loyalty_points` int(10) UNSIGNED NOT NULL DEFAULT '0',
     `animus_mastery` mediumblob DEFAULT NULL,
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     `virtue` int(10) UNSIGNED NOT NULL DEFAULT '0',
     `harmony` int(10) UNSIGNED NOT NULL DEFAULT '0',
     `weapon_proficiencies` mediumblob DEFAULT NULL,
+    `charbazaar` tinyint(1) NOT NULL DEFAULT '0',
+    `is_locked` tinyint(1) NOT NULL DEFAULT '0',
+    `locked_at` bigint(20) NOT NULL DEFAULT '0',
+    `lock_reason` varchar(64) NOT NULL DEFAULT '',
     INDEX `account_id` (`account_id`),
     INDEX `vocation` (`vocation`),
+    INDEX `idx_players_concurrency_lock` (`is_locked`, `locked_at`),
     CONSTRAINT `players_pk` PRIMARY KEY (`id`),
     CONSTRAINT `players_unique` UNIQUE (`name`),
     CONSTRAINT `players_account_fk`
@@ -237,7 +243,7 @@ CREATE TABLE IF NOT EXISTS `account_viplist` (
     `description` varchar(128) NOT NULL DEFAULT '',
     `icon` tinyint(2) UNSIGNED NOT NULL DEFAULT '0',
     `notify` tinyint(1) NOT NULL DEFAULT '0',
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     INDEX `account_id` (`account_id`),
     INDEX `player_id` (`player_id`),
     CONSTRAINT `account_viplist_unique` UNIQUE (`account_id`, `player_id`),
@@ -388,7 +394,7 @@ CREATE TABLE IF NOT EXISTS `guilds` (
     `residence` int(11) NOT NULL DEFAULT '0',
     `balance` bigint(20) UNSIGNED NOT NULL DEFAULT '0',
     `points` int(11) NOT NULL DEFAULT '0',
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     CONSTRAINT `guilds_pk` PRIMARY KEY (`id`),
     CONSTRAINT `guilds_name_unique` UNIQUE (`name`),
     CONSTRAINT `guilds_owner_unique` UNIQUE (`ownerid`),
@@ -517,7 +523,7 @@ CREATE TABLE IF NOT EXISTS `houses` (
     `bid_end_date` int(11) NOT NULL DEFAULT '0',
     `state` smallint(5) UNSIGNED NOT NULL DEFAULT '0',
     `transfer_status` tinyint(1) DEFAULT '0',
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     INDEX `owner` (`owner`),
     INDEX `town_id` (`town_id`),
     CONSTRAINT `houses_pk` PRIMARY KEY (`id`, `world_id`),
@@ -542,7 +548,7 @@ CREATE TABLE IF NOT EXISTS `house_lists` (
     `listid` int NOT NULL,
     `version` bigint NOT NULL DEFAULT '0',
     `list` text NOT NULL,
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     PRIMARY KEY (`house_id`, `listid`),
     KEY `house_id_index` (`house_id`),
     KEY `version` (`version`),
@@ -581,7 +587,7 @@ CREATE TABLE IF NOT EXISTS `market_history` (
     `inserted` bigint(20) UNSIGNED NOT NULL,
     `state` tinyint(1) UNSIGNED NOT NULL,
     `tier` tinyint UNSIGNED NOT NULL DEFAULT '0',
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     INDEX `player_id` (`player_id`,`sale`),
     CONSTRAINT `market_history_pk` PRIMARY KEY (`id`),
     CONSTRAINT `market_history_players_fk`
@@ -603,7 +609,7 @@ CREATE TABLE IF NOT EXISTS `market_offers` (
     `anonymous` tinyint(1) NOT NULL DEFAULT '0',
     `price` bigint(20) UNSIGNED NOT NULL DEFAULT '0',
     `tier` tinyint UNSIGNED NOT NULL DEFAULT '0',
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     INDEX `sale` (`sale`,`itemtype`),
     INDEX `created` (`created`),
     INDEX `player_id` (`player_id`),
@@ -619,7 +625,7 @@ CREATE TABLE IF NOT EXISTS `market_offers` (
 -- Table structure `players_online`
 CREATE TABLE IF NOT EXISTS `players_online` (
     `player_id` int(11) NOT NULL,
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     CONSTRAINT `players_online_pk` PRIMARY KEY (`player_id`),
     CONSTRAINT `players_online_worlds_fk`
         FOREIGN KEY (`world_id`) REFERENCES `worlds` (`id`)
@@ -815,6 +821,58 @@ CREATE TABLE IF NOT EXISTS `player_taskhunt` (
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
+
+-- Table structure `player_bounty_tasks` (Winter Update 2025)
+CREATE TABLE IF NOT EXISTS `player_bounty_tasks` (
+    `player_id` int NOT NULL,
+    `state` tinyint NOT NULL DEFAULT 0,
+    `difficulty` tinyint NOT NULL DEFAULT 0,
+    `bounty_points` int NOT NULL DEFAULT 0,
+    `reroll_tokens` tinyint NOT NULL DEFAULT 0,
+    `free_reroll` bigint NOT NULL DEFAULT 0,
+    `active_raceid` int NOT NULL DEFAULT 0,
+    `active_kills` int NOT NULL DEFAULT 0,
+    `active_required_kills` int NOT NULL DEFAULT 0,
+    `active_reward_exp` int NOT NULL DEFAULT 0,
+    `active_reward_points` tinyint NOT NULL DEFAULT 0,
+    `active_task_grade` tinyint NOT NULL DEFAULT 0,
+    `active_task_difficulty` tinyint NOT NULL DEFAULT 0,
+    `talisman_damage_level` tinyint NOT NULL DEFAULT 0,
+    `talisman_lifeleech_level` tinyint NOT NULL DEFAULT 0,
+    `talisman_loot_level` tinyint NOT NULL DEFAULT 0,
+    `talisman_bestiary_level` tinyint NOT NULL DEFAULT 0,
+    `preferred_lists` BLOB NULL,
+    `current_creatures_list` BLOB NULL,
+    CONSTRAINT `player_bounty_tasks_pk` PRIMARY KEY (`player_id`),
+    CONSTRAINT `player_bounty_tasks_players_fk`
+        FOREIGN KEY (`player_id`) REFERENCES `players` (`id`)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Table structure `player_weekly_tasks` (Winter Update 2025)
+CREATE TABLE IF NOT EXISTS `player_weekly_tasks` (
+    `player_id` int NOT NULL,
+    `has_expansion` BOOLEAN NOT NULL DEFAULT FALSE,
+    `difficulty` tinyint NOT NULL DEFAULT 0,
+    `any_creature_total_kills` int NOT NULL DEFAULT 0,
+    `any_creature_current_kills` int NOT NULL DEFAULT 0,
+    `completed_kill_tasks` tinyint NOT NULL DEFAULT 0,
+    `completed_delivery_tasks` tinyint NOT NULL DEFAULT 0,
+    `kill_task_reward_exp` int NOT NULL DEFAULT 0,
+    `delivery_task_reward_exp` int NOT NULL DEFAULT 0,
+    `reward_hunting_points` int NOT NULL DEFAULT 0,
+    `reward_soulseals` int NOT NULL DEFAULT 0,
+    `soulseals_points` int NOT NULL DEFAULT 0,
+    `needs_reward` tinyint NOT NULL DEFAULT 0,
+    `weekly_progress_finished` tinyint NOT NULL DEFAULT 0,
+    `kill_tasks` BLOB NULL,
+    `delivery_tasks` BLOB NULL,
+    CONSTRAINT `player_weekly_tasks_pk` PRIMARY KEY (`player_id`),
+    CONSTRAINT `player_weekly_tasks_players_fk`
+        FOREIGN KEY (`player_id`) REFERENCES `players` (`id`)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Table structure `player_bosstiary`
 CREATE TABLE IF NOT EXISTS `player_bosstiary` (
     `player_id` int NOT NULL,
@@ -917,7 +975,7 @@ CREATE TABLE IF NOT EXISTS `store_history` (
 CREATE TABLE IF NOT EXISTS `tile_store` (
     `house_id` int(11) NOT NULL,
     `data` longblob NOT NULL,
-    `world_id` int(3) UNSIGNED NOT NULL,
+    `world_id` int(3) UNSIGNED NOT NULL DEFAULT 1,
     INDEX `house_id` (`house_id`),
     CONSTRAINT `tile_store_account_fk`
         FOREIGN KEY (`house_id`) REFERENCES `houses` (`id`)
@@ -954,6 +1012,31 @@ CREATE TABLE IF NOT EXISTS `kv_store` (
   `value` longblob NOT NULL,
   PRIMARY KEY (`key_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+-- Table structure `market_web_orders`
+CREATE TABLE IF NOT EXISTS `market_web_orders` (
+  `id` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `offer_id` INT(11) NOT NULL,
+  `buyer_id` INT(11) NOT NULL,
+  `buyer_account_id` INT(11) NOT NULL,
+  `seller_id` INT(11) NOT NULL,
+  `seller_account_id` INT(11) NOT NULL,
+  `itemtype` INT(11) NOT NULL,
+  `amount` INT(11) NOT NULL,
+  `price` BIGINT(20) UNSIGNED NOT NULL,
+  `tier` TINYINT(3) UNSIGNED NOT NULL DEFAULT 0,
+  `currency_type` VARCHAR(16) NOT NULL DEFAULT 'gold',
+  `world_id` INT(11) NOT NULL DEFAULT 0,
+  `status` ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+  `fail_reason` VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at` BIGINT(20) NOT NULL,
+  `processed_at` BIGINT(20) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  INDEX `idx_mwo_world_status_created` (`world_id`, `status`, `created_at`),
+  INDEX `idx_mwo_buyer` (`buyer_id`),
+  INDEX `idx_mwo_seller` (`seller_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 -- Create Account god/god
 INSERT INTO `accounts`

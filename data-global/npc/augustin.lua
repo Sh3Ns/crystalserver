@@ -134,6 +134,7 @@ npcConfig.shop = {
 	{ itemName = "white pearl", clientId = 3026, buy = 320, sell = 160 },
 	{ itemName = "White Silk Flower", clientId = 34008, sell = 9000 },
 	{ itemName = "Yellow Gem", clientId = 3037, sell = 1000 },
+	{ itemName = "bounty talisman", clientId = 51978, buy = 5000 },
 }
 
 local keywordHandler = KeywordHandler:new()
@@ -178,9 +179,12 @@ npcType.onBuyItem = function(npc, player, itemId, subType, amount, ignore, inBac
 end
 -- On sell npc shop message
 npcType.onSellItem = function(npc, player, itemId, subtype, amount, ignore, name, totalCost)
-	player:sendTextMessage(MESSAGE_INFO_DESCR, string.format("Sold %ix %s for %i gold.", amount, name, totalCost))
+	player:sendTextMessage(MESSAGE_TRADE, string.format("Sold %ix %s for %i gold.", amount, name, totalCost))
 end
 -- On check npc shop message (look item)
 npcType.onCheckItem = function(npc, player, clientId, subType) end
+
+-- Dialog options (interactive icons in the NPC conversation window)
+npcType:addDialogOptions("trade", "bye")
 
 npcType:register(npcConfig)

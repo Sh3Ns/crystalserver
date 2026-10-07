@@ -55,6 +55,12 @@ end
 npcType.onCloseChannel = function(npc, creature)
 	npcHandler:onCloseChannel(npc, creature)
 end
+
+keywordHandler:addKeyword({ "name" }, StdModule.say, { npcHandler = npcHandler, text = "My name is Vera. I sell furniture and equipment." })
+keywordHandler:addKeyword({ "job" }, StdModule.say, { npcHandler = npcHandler, text = "Have you moved to a new home? I'm the specialist for equipping it." })
+keywordHandler:addKeyword({ "news" }, StdModule.say, { npcHandler = npcHandler, text = "You mean my specials, don't you?" })
+keywordHandler:addKeyword({ "type" }, StdModule.say, { npcHandler = npcHandler, text = "I have beds, chairs, containers, decoration, flowers, instruments, pillows, pottery, statues, tapestries and tables. Which of those would you like to see?" })
+
 npcHandler:addModule(FocusModule:new(), npcConfig.name, true, true, true)
 
 npcConfig.shop = {
@@ -163,5 +169,8 @@ npcType.onSellItem = function(npc, player, itemId, subtype, amount, ignore, name
 end
 -- On check npc shop message (look item)
 npcType.onCheckItem = function(npc, player, clientId, subType) end
+
+-- Dialog options (interactive icons in the NPC conversation window)
+npcType:addDialogOptions("trade", "bye")
 
 npcType:register(npcConfig)
