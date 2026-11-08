@@ -576,14 +576,6 @@ ChestUnique = {
 		questName = "minohell3",
 	},
 	-- Shadows of Yalahar Quest Mision 10
-	[5027] = {
-		useKV = true,
-		itemId = 2469,
-		itemPos = { x = 32629, y = 32446, z = 10 },
-		reward = { { 9237, 1 } }, -- shadow orb
-		weight = 4.00,
-		questName = "shadow-orb",
-	},
 	-- To add a reward inside a bag, you need to add the variable "container = bagId" before "reward"
 	-- Just duplicate the table and configure correctly, the scripts already register the entire table automatically
 	-- Path: data\scripts\actions\system\quest_reward_common.lua
@@ -1179,7 +1171,7 @@ ChestUnique = {
 	[6078] = {
 		itemId = 2472,
 		itemPos = { x = 32776, y = 32253, z = 8 },
-		reward = { { 12510, 1 } },
+		reward = { { 3208, 1 } },
 		storage = Storage.Quest.U7_6.ExplorerSociety.GiantSmithHammer.Hammer,
 	},
 	-- 100 gold coin
@@ -3146,7 +3138,22 @@ ChestUnique = {
 		weight = 2.00,
 		questName = "golem-wrench",
 	},
-
+	[6341] = {
+		useKV = true,
+		itemId = 2469,
+		itemPos = { x = 32629, y = 32446, z = 10 },
+		reward = { { 9237, 1 } }, -- shadow orb
+		weight = 4.00,
+		questName = "shadow-orb",
+	},
+	[6340] = {
+		useKV = true,
+		itemId = 2473,
+		itemPos = { x = 32576, y = 31572, z = 110 },
+		reward = { { 9308, 1 } }, -- Nautical Map
+		weight = 8.19,
+		questName = "nautical-map",
+	},
 	-- The Inquisition Quest
 	[6500] = {
 		itemId = 2472,

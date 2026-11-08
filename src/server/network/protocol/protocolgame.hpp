@@ -364,6 +364,15 @@ private:
 	void sendTutorial(uint8_t tutorialId);
 	void sendAddMarker(const Position &pos, uint8_t markType, const std::string &desc);
 
+	// Cyclopedia Map "Measuring Tibia" discovery — S2C 0xDD sub-types (RE'd from summer client).
+	void sendCyclopediaMapSetCurrentArea(uint16_t areaId);
+	void sendCyclopediaMapSetExploringArea(uint16_t subAreaId);
+	void sendCyclopediaMapDonations(uint64_t donationGoal, const std::vector<std::tuple<uint16_t, bool, uint64_t>> &areas);
+	void sendCyclopediaMapDiscoveryData(const std::vector<std::tuple<uint16_t, uint8_t, uint8_t>> &mainAreas, const std::vector<uint16_t> &discoveredSubAreas, const std::vector<uint16_t> &discoverableSubAreas);
+	void sendCyclopediaMapSetDiscoveryArea(uint16_t areaId, bool active, uint8_t poiTarget, const std::vector<std::pair<Position, uint8_t>> &points);
+	void parseCyclopediaMapAction(NetworkMessage &msg, uint8_t recvbyte); // C2S 0x92 + 0xDB (Map tab: requests / donations)
+	void handleDiscoveryDonation(uint16_t areaId, uint64_t amount);
+
 	void sendCyclopediaCharacterNoData(CyclopediaCharacterInfoType_t characterInfoType, uint8_t errorCode);
 	void sendCyclopediaCharacterBaseInformation();
 	void sendCyclopediaCharacterGeneralStats();
@@ -396,6 +405,12 @@ private:
 	void sendNpcDialogOptions(const NpcDialogOptions &dialogOptions);
 	void sendClientCheck();
 	void sendGameNews();
+	/// CIP HirelingNameChange (S 0xDB). Zeros open a store-style name prompt.
+	void sendHirelingNameChange(uint32_t creatureId = 0, uint32_t objectId = 0);
+	/// CIP SpellDataModification (S 0x60): u16 count + count×(u16 spellId, u8 mod, u32 value).
+	void sendSpellDataModification(const std::vector<std::tuple<uint16_t, uint8_t, uint32_t>> &entries);
+	/// CIP GemAtelierGemRevealed (S 0xC5): u32 gem id (atelier inventory index).
+	void sendGemAtelierGemRevealed(uint32_t gemId);
 	void sendResourcesBalance(uint64_t money = 0, uint64_t bank = 0, uint64_t preyCards = 0, uint64_t taskHunting = 0, uint64_t soulsealsPoints = 0, uint64_t forgeDust = 0, uint64_t forgeSliver = 0, uint64_t forgeCores = 0);
 	void sendResourceBalance(Resource_t resourceType);
 	void sendResourceBalance(Resource_t resourceType, uint64_t value);
@@ -569,6 +584,19 @@ private:
 	void parseWeaponProficiency(NetworkMessage &msg);
 	void sendWeaponProficiencyExperience(const uint16_t itemId, const uint32_t experience);
 	void sendWeaponProficiencyInfo(const uint16_t itemId);
+	void sendWeaponProficiencyReshapeOffers(const uint16_t itemId);
+	void sendBossDifficultySelection(uint8_t selectedDifficulty, const std::vector<uint32_t> &numbers, const std::vector<std::string> &banners, const std::vector<std::string> &redMods, const std::vector<std::string> &greenMods);
+	void parseBossDifficultySelection(NetworkMessage &msg);
+
+	void parseOpenDailyReward(NetworkMessage &msg);
+	void parseOpenDailyRewardHistory(NetworkMessage &msg);
+	void parseSelectDailyReward(NetworkMessage &msg);
+
+	void sendDailyRewardBasic();
+	void sendOpenRewardWall(uint8_t shrine, uint8_t dayStreak, uint16_t jokerTokens, uint16_t streakLevel, uint32_t nextRewardTime, bool rewardTaken, bool testMode);
+	void sendDailyRewardCollectionState(uint8_t state);
+	void sendDailyRewardHistory(uint32_t playerGuid);
+	void sendDailyRewardCollectionResource(uint8_t resourceType, uint64_t value);
 
 	friend class Player;
 	friend class PlayerWheel;
@@ -623,6 +651,7 @@ private:
 	void sendScreenshotAndBannerUnlockedSpell(uint16_t spellId);
 	void sendScreenshotAndBannerBountyTaskFinished(uint16_t raceId);
 	void sendScreenshotAndBannerWeeklyTaskSpecificFinished(uint16_t raceId);
+	void sendScreenshotAndBannerLeaderMonsterKilled(uint16_t raceId, uint32_t charmPoints);
 
 	void sendDisableLoginMusic();
 

@@ -23,6 +23,7 @@
 #include "creatures/monsters/monsters.hpp"
 #include "creatures/npcs/npc.hpp"
 #include "creatures/players/achievement/player_achievement.hpp"
+#include "creatures/players/daily_reward/daily_reward.hpp"
 #include "creatures/players/player.hpp"
 #include "game/functions/game_reload.hpp"
 #include "game/game.hpp"
@@ -39,6 +40,8 @@
 #include "lua/scripts/lua_environment.hpp"
 #include "map/spectators.hpp"
 #include "lua/functions/lua_functions_loader.hpp"
+
+#include <ctime>
 
 void GameFunctions::init(lua_State* L) {
 	Lua::registerTable(L, "Game");
@@ -87,6 +90,7 @@ void GameFunctions::init(lua_State* L) {
 	Lua::registerMethod(L, "Game", "startRaid", GameFunctions::luaGameStartRaid);
 
 	Lua::registerMethod(L, "Game", "getClientVersion", GameFunctions::luaGameGetClientVersion);
+	Lua::registerMethod(L, "Game", "setImprovedRespawnZones", GameFunctions::luaGameSetImprovedRespawnZones);
 
 	Lua::registerMethod(L, "Game", "reload", GameFunctions::luaGameReload);
 
@@ -137,6 +141,7 @@ void GameFunctions::init(lua_State* L) {
 	Lua::registerMethod(L, "Game", "setRankName", GameFunctions::luaGameSetRankName);
 	Lua::registerMethod(L, "Game", "createGuild", GameFunctions::luaGameCreateGuild);
 	Lua::registerMethod(L, "Game", "joinGuild", GameFunctions::luaGameJoinGuild);
+	Lua::registerMethod(L, "Game", "updateDailyRewardLastServerSave", GameFunctions::luaGameUpdateDailyRewardLastServerSave);
 	Lua::registerMethod(L, "Game", "reportShadowedScripts", GameFunctions::luaGameReportShadowedScripts);
 }
 
@@ -791,6 +796,30 @@ int GameFunctions::luaGameGetClientVersion(lua_State* L) {
 	return 1;
 }
 
+int GameFunctions::luaGameSetImprovedRespawnZones(lua_State* L) {
+	// Game.setImprovedRespawnZones(rects) ; rects = { {x1, y1, x2, y2}, ... } (whole replace)
+	std::vector<ImprovedRespawnZone> zones;
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushnil(L);
+	while (lua_next(L, 1) != 0) {
+		luaL_checktype(L, -1, LUA_TTABLE);
+		lua_rawgeti(L, -1, 1);
+		lua_rawgeti(L, -2, 2);
+		lua_rawgeti(L, -3, 3);
+		lua_rawgeti(L, -4, 4);
+		zones.push_back(ImprovedRespawnZone {
+			static_cast<uint16_t>(luaL_checknumber(L, -4)),
+			static_cast<uint16_t>(luaL_checknumber(L, -3)),
+			static_cast<uint16_t>(luaL_checknumber(L, -2)),
+			static_cast<uint16_t>(luaL_checknumber(L, -1)),
+		});
+		lua_pop(L, 5);
+	}
+	g_game().setImprovedRespawnZones(std::move(zones));
+	Lua::pushBoolean(L, true);
+	return 1;
+}
+
 int GameFunctions::luaGameReload(lua_State* L) {
 	// Game.reload(reloadType)
 	const Reload_t reloadType = Lua::getNumber<Reload_t>(L, 1);
@@ -1276,5 +1305,13 @@ int GameFunctions::luaGameJoinGuild(lua_State* L) {
 
 	bool success = g_game().joinGuild(guildName, playerName);
 	Lua::pushBoolean(L, success);
+	return 1;
+}
+
+int GameFunctions::luaGameUpdateDailyRewardLastServerSave(lua_State* L) {
+	// Game.updateDailyRewardLastServerSave([timestamp])
+	const time_t timestamp = lua_gettop(L) >= 2 ? static_cast<time_t>(Lua::getNumber<int64_t>(L, 2)) : std::time(nullptr);
+	g_dailyRewards().updateLastServerSave(timestamp);
+	Lua::pushBoolean(L, true);
 	return 1;
 }

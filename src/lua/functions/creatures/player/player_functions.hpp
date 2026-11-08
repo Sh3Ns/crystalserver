@@ -122,6 +122,13 @@ class PlayerFunctions {
 
 	static int luaPlayerGetKills(lua_State* L);
 	static int luaPlayerSetKills(lua_State* L);
+	static int luaPlayerSendCreatureSquare(lua_State* L);
+	static int luaPlayerSendDiscoveryData(lua_State* L);
+	static int luaPlayerSendDiscoveryCurrentArea(lua_State* L);
+	static int luaPlayerSendDiscoveryExploring(lua_State* L);
+	static int luaPlayerSendDiscoveryDonations(lua_State* L);
+	static int luaPlayerSendDiscoveryArea(lua_State* L);
+	static int luaPlayerCheckNewTitles(lua_State* L);
 
 	static int luaPlayerGetFreeCapacity(lua_State* L);
 
@@ -130,6 +137,10 @@ class PlayerFunctions {
 	static int luaPlayerGetRewardList(lua_State* L);
 
 	static int luaPlayerSetDailyReward(lua_State* L);
+	static int luaPlayerGetCollectionTokens(lua_State* L);
+	static int luaPlayerSetCollectionTokens(lua_State* L);
+	static int luaPlayerGetJokerTokens(lua_State* L);
+	static int luaPlayerSetJokerTokens(lua_State* L);
 
 	static int luaPlayerSendInventory(lua_State* L);
 	static int luaPlayerSendLootStats(lua_State* L);
@@ -270,6 +281,7 @@ class PlayerFunctions {
 	static int luaPlayerRemoveOutfitAddon(lua_State* L);
 	static int luaPlayerHasOutfit(lua_State* L);
 	static int luaPlayerSendOutfitWindow(lua_State* L);
+	static int luaPlayerSendHirelingNameChange(lua_State* L);
 
 	static int luaPlayerAddMount(lua_State* L);
 	static int luaPlayerRemoveMount(lua_State* L);
@@ -460,6 +472,9 @@ class PlayerFunctions {
 
 	static int luaPlayersendBannerType(lua_State* L);
 	static int luaPlayerSendQuestStatusUpdate(lua_State* L);
+	static int luaPlayerSendLeaderMonsterKilledBanner(lua_State* L);
+	static int luaPlayerAddLeaderMonsterKill(lua_State* L);
+	static int luaPlayerHasKilledLeaderMonster(lua_State* L);
 
 	static int luaPlayerSendIconBakragore(lua_State* L);
 	static int luaPlayerRemoveIconBakragore(lua_State* L);
@@ -486,6 +501,8 @@ class PlayerFunctions {
 	static int luaPlayerApplyImbuementScrollToItem(lua_State* L);
 	static int luaPlayerOnClearAllImbuementsOnEtcher(lua_State* L);
 	static int luaPlayerSendWeaponProficiencyExperience(lua_State* L);
+	static int luaPlayerSendBossDifficultySelection(lua_State* L);
+	static int luaPlayerSendCyclopediaDiscoveryTest(lua_State* L);
 
 	static int luaPlayerGetMapShader(lua_State* L);
 	static int luaPlayerSetMapShader(lua_State* L);
